@@ -13,10 +13,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -29,12 +28,21 @@ import kotlinx.coroutines.isActive
 import kotlin.math.*
 import kotlin.random.Random
 
-// --- OYUN AYARLARI VE GÖRSEL VARLIKLAR (EMOJİLER) ---
+// --- GÖRSEL MODELLEME VE EFEKTLER ---
 
-enum class EnemyType(val emoji: String, val health: Int, val speed: Float, val reward: Int) {
-    GULYABANI("👹", 40, 3.8f, 15),
-    KARAKONCOLOS("🐗", 120, 2.0f, 50),
-    AL_KARISI("🧛", 30, 8.0f, 30)
+data class Particle(
+    var x: Float,
+    var y: Float,
+    var vx: Float,
+    var vy: Float,
+    var life: Float,
+    val color: Color
+)
+
+enum class EnemyType(val color: Color, val health: Int, val speed: Float, val size: Float) {
+    GULYABANI(Color(0xFF43A047), 50, 3.5f, 50f),
+    DEV(Color(0xFF5D4037), 200, 1.5f, 90f),
+    GÖLGE(Color(0xFF212121), 30, 7.0f, 40f)
 }
 
 data class Enemy(
@@ -42,252 +50,227 @@ data class Enemy(
     var y: Float,
     val type: EnemyType,
     var currentHealth: Int,
-    val id: Long = Random.nextLong()
+    var angle: Float = 0f
 )
 
-data class Tower(
-    val x: Float,
-    val y: Float,
-    val level: Int = 1
-)
+data class Tower(val x: Float, val y: Float)
 
-data class Arrow(
-    var x: Float,
-    var y: Float,
-    val targetX: Float,
-    val targetY: Float,
-    val angle: Float
-)
-
-// --- OYUN MOTORU ---
+data class Arrow(var x: Float, var y: Float, val angle: Float)
 
 class KingShotEngine {
     var enemies = mutableStateListOf<Enemy>()
     var towers = mutableStateListOf<Tower>()
     var arrows = mutableStateListOf<Arrow>()
+    var particles = mutableStateListOf<Particle>()
     
-    var gold by mutableIntStateOf(250)
+    var gold by mutableIntStateOf(300)
     var health by mutableIntStateOf(100)
-    var score by mutableIntStateOf(0)
     var wave by mutableIntStateOf(1)
-    
-    private var lastSpawnTime = 0L
-    private var lastShotTime = 0L
+    var shakeAmount by mutableFloatStateOf(0f)
 
     fun update(width: Float, height: Float) {
         if (health <= 0) return
+        if (shakeAmount > 0) shakeAmount -= 1f
 
         val currentTime = System.currentTimeMillis()
-        val spawnRate = max(400, 2500 - (wave * 150)).toLong()
         
-        // Düşman Oluşturma
-        if (currentTime - lastSpawnTime > spawnRate) {
+        // Düşman Oluşturma (Zorluk Artışı)
+        if (Random.nextInt(100) < (2 + wave)) {
             val type = when {
-                wave > 5 && Random.nextFloat() < 0.3f -> EnemyType.KARAKONCOLOS
-                wave > 2 && Random.nextFloat() < 0.4f -> EnemyType.AL_KARISI
+                Random.nextFloat() < 0.1f -> EnemyType.DEV
+                Random.nextFloat() < 0.2f -> EnemyType.GÖLGE
                 else -> EnemyType.GULYABANI
             }
-            val spawnX = 100f + Random.nextFloat() * (width - 200f)
-            enemies.add(Enemy(spawnX, -100f, type, type.health))
-            lastSpawnTime = currentTime
+            enemies.add(Enemy(Random.nextFloat() * width, -100f, type, type.health))
         }
 
-        // Düşman Hareketleri
-        val enemyIterator = enemies.listIterator()
-        while (enemyIterator.hasNext()) {
-            val enemy = enemyIterator.next()
-            enemy.y += enemy.type.speed
+        // Parçacık Güncelleme
+        val pIter = particles.listIterator()
+        while(pIter.hasNext()){
+            val p = pIter.next()
+            p.x += p.vx; p.y += p.vy
+            p.life -= 0.02f
+            if(p.life <= 0) pIter.remove()
+        }
+
+        // Düşmanlar
+        val eIter = enemies.listIterator()
+        while (eIter.hasNext()) {
+            val e = eIter.next()
+            e.y += e.type.speed
+            e.angle += 2f // Dönüş animasyonu
             
-            // Oba Savunma Hattına Ulaştı mı?
-            if (enemy.y > height - 350f) {
-                health = max(0, health - 10)
-                enemyIterator.remove()
+            if (e.y > height - 300f) {
+                health -= 10
+                shakeAmount = 15f
+                createExplosion(e.x, e.y, Color.Red, 10)
+                eIter.remove()
             }
         }
 
-        // Kule Atış Mantığı
-        if (currentTime - lastShotTime > 800) {
-            towers.forEach { tower ->
-                val target = enemies.minByOrNull { dist(it.x, it.y, tower.x, tower.y) }
-                if (target != null && dist(target.x, target.y, tower.x, tower.y) < 800f) {
-                    val dx = target.x - tower.x
-                    val dy = target.y - tower.y
-                    arrows.add(Arrow(tower.x, tower.y, target.x, target.y, atan2(dy, dx)))
+        // Kule Atışları
+        if (currentTime % 1000 < 20) {
+            towers.forEach { t ->
+                enemies.minByOrNull { sqrt((it.x-t.x).pow(2) + (it.y-t.y).pow(2)) }?.let { target ->
+                    val angle = atan2(target.y - t.y, target.x - t.x)
+                    arrows.add(Arrow(t.x, t.y, angle))
                 }
             }
-            lastShotTime = currentTime
         }
 
-        // Ok Hareketleri ve Çarpışma
-        val arrowIterator = arrows.listIterator()
-        while (arrowIterator.hasNext()) {
-            val arrow = arrowIterator.next()
-            arrow.x += cos(arrow.angle) * 35f
-            arrow.y += sin(arrow.angle) * 35f
+        // Oklar
+        val aIter = arrows.listIterator()
+        while (aIter.hasNext()) {
+            val a = aIter.next()
+            a.x += cos(a.angle) * 30f
+            a.y += sin(a.angle) * 30f
 
-            val hitEnemy = enemies.find { dist(it.x, it.y, arrow.x, arrow.y) < 60f }
-            if (hitEnemy != null) {
-                hitEnemy.currentHealth -= 20
-                if (hitEnemy.currentHealth <= 0) {
-                    gold += hitEnemy.type.reward
-                    score += hitEnemy.type.reward * 5
-                    enemies.remove(hitEnemy)
-                    if (score > 0 && score % 1000 == 0) wave++
+            val hit = enemies.find { sqrt((it.x-a.x).pow(2) + (it.y-a.y).pow(2)) < 50f }
+            if (hit != null) {
+                hit.currentHealth -= 25
+                createExplosion(a.x, a.y, hit.type.color, 5)
+                if (hit.currentHealth <= 0) {
+                    gold += 20
+                    enemies.remove(hit)
                 }
-                arrowIterator.remove()
-                continue
+                aIter.remove()
+            } else if (a.y < 0 || a.y > height || a.x < 0 || a.x > width) {
+                aIter.remove()
             }
-            
-            if (arrow.y < -100 || arrow.y > height + 100 || arrow.x < -100 || arrow.x > width + 100) {
-                arrowIterator.remove()
-            }
+        }
+    }
+
+    private fun createExplosion(x: Float, y: Float, color: Color, count: Int) {
+        repeat(count) {
+            particles.add(Particle(x, y, Random.nextFloat()*10-5, Random.nextFloat()*10-5, 1f, color))
         }
     }
 
     fun buildTower(x: Float, y: Float) {
-        val cost = 75
-        if (gold >= cost && y < 1400f && y > 400f) {
-            if (towers.none { dist(it.x, it.y, x, y) < 180f }) {
-                towers.add(Tower(x, y))
-                gold -= cost
-            }
+        if (gold >= 100 && y > 500f && y < 1400f) {
+            towers.add(Tower(x, y))
+            gold -= 100
         }
     }
-
-    private fun dist(x1: Float, y1: Float, x2: Float, y2: Float) = sqrt((x2-x1).pow(2) + (y2-y1).pow(2))
 }
-
-// --- GÖRSEL BİLEŞEN ---
 
 @Composable
 fun KingShotGame() {
     val engine = remember { KingShotEngine() }
-    var canvasSize by remember { mutableStateOf(Offset.Zero) }
+    var size by remember { mutableStateOf(Offset.Zero) }
     val textMeasurer = rememberTextMeasurer()
 
     LaunchedEffect(Unit) {
-        // Başlangıç kuleleri
-        engine.towers.add(Tower(300f, 1350f))
-        engine.towers.add(Tower(800f, 1350f))
-        
+        engine.towers.add(Tower(200f, 1300f))
+        engine.towers.add(Tower(800f, 1300f))
         while(isActive) {
-            if (canvasSize.x > 0) engine.update(canvasSize.x, canvasSize.y)
+            if (size.x > 0) engine.update(size.x, size.y)
             delay(16)
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF2E7D32))) {
-        Canvas(modifier = Modifier
-            .fillMaxSize()
-            // DÜZELTME: Koordinatları almak için pointerInput ve detectTapGestures kullanıyoruz
-            .pointerInput(Unit) {
-                detectTapGestures { offset ->
-                    engine.buildTower(offset.x, offset.y)
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1B5E20))) {
+        Canvas(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+            detectTapGestures { engine.buildTower(it.x, it.y) }
+        }) {
+            size = Offset(this.size.width, this.size.height)
+            
+            // Ekran sarsıntısı uygula
+            val shakeX = if(engine.shakeAmount > 0) Random.nextFloat()*engine.shakeAmount else 0f
+            val shakeY = if(engine.shakeAmount > 0) Random.nextFloat()*engine.shakeAmount else 0f
+
+            translate(left = shakeX, top = shakeY) {
+                // 1. ZEMİN DETAYLARI
+                drawGround(this)
+
+                // 2. KULELER (Vektörel Çizim)
+                engine.towers.forEach { drawCastleTower(this, it) }
+
+                // 3. DÜŞMANLAR (Detaylı Yaratıklar)
+                engine.enemies.forEach { drawMonster(this, it) }
+
+                // 4. OKLAR
+                engine.arrows.forEach { 
+                    drawCircle(Color(0xFF795548), 5f, Offset(it.x, it.y))
+                    drawLine(Color.White, Offset(it.x, it.y), Offset(it.x - cos(it.angle)*20, it.y - sin(it.angle)*20), 4f)
                 }
-            }
-        ) {
-            canvasSize = Offset(size.width, size.height)
-            
-            // 1. ZEMİN VE YOL (Bozkır havası)
-            drawRect(
-                brush = Brush.verticalGradient(listOf(Color(0xFF388E3C), Color(0xFF2E7D32))),
-                size = size
-            )
-            
-            // Patika yol
-            drawRect(
-                color = Color(0xFF8D6E63).copy(alpha = 0.3f),
-                topLeft = Offset(size.width * 0.2f, 0f),
-                size = Size(size.width * 0.6f, size.height)
-            )
 
-            // 2. OBA / SAVUNMA HATTI (Alt Kısım)
-            drawRect(
-                color = Color(0xFF4E342E),
-                topLeft = Offset(0f, size.height - 350f),
-                size = Size(size.width, 350f)
-            )
-            // Çadır emojileri (Oba görünümü)
-            for (i in 0..5) {
-                drawText(textMeasurer, "⛺", Offset(i * (size.width/5) - 40f, size.height - 250f), style = TextStyle(fontSize = 50.sp))
-            }
-
-            // 3. KULELER
-            engine.towers.forEach { tower ->
-                // Kule tabanı
-                drawRect(Color(0xFF5D4037), Offset(tower.x - 60f, tower.y - 80f), Size(120f, 100f))
-                // Gözcü/Okçu
-                drawText(textMeasurer, "🏹", Offset(tower.x - 45f, tower.y - 150f), style = TextStyle(fontSize = 45.sp))
-                // Kule bayrağı
-                drawRect(Color.Red, Offset(tower.x + 40f, tower.y - 140f), Size(30f, 20f))
-            }
-
-            // 4. DÜŞMANLAR
-            engine.enemies.forEach { enemy ->
-                // Gölge
-                drawCircle(Color.Black.copy(alpha = 0.2f), radius = 30f, center = Offset(enemy.x, enemy.y + 20f))
-                
-                // Canavar Emojisi
-                drawText(textMeasurer, enemy.type.emoji, Offset(enemy.x - 50f, enemy.y - 60f), style = TextStyle(fontSize = 50.sp))
-                
-                // Can Barı
-                val healthWidth = 100f
-                drawRect(Color.Black, Offset(enemy.x - 50f, enemy.y - 90f), Size(healthWidth, 10f))
-                drawRect(
-                    if(enemy.currentHealth > enemy.type.health/2) Color.Green else Color.Red,
-                    Offset(enemy.x - 50f, enemy.y - 90f),
-                    Size(healthWidth * (enemy.currentHealth.toFloat() / enemy.type.health), 10f)
-                )
-            }
-
-            // 5. OKLAR
-            engine.arrows.forEach { arrow ->
-                drawCircle(Color(0xFFFFD700), radius = 6f, center = Offset(arrow.x, arrow.y))
-                // İz efekti
-                drawLine(Color(0xFFEEEEEE), Offset(arrow.x, arrow.y), Offset(arrow.x - cos(arrow.angle)*30, arrow.y - sin(arrow.angle)*30), strokeWidth = 3f)
+                // 5. PARÇACIKLAR
+                engine.particles.forEach { 
+                    drawCircle(it.color.copy(alpha = it.life), radius = 8f * it.life, center = Offset(it.x, it.y))
+                }
             }
         }
 
-        // ARAYÜZ (UI)
-        Column(modifier = Modifier.padding(20.dp).align(Alignment.TopStart)) {
-            StatusCard("💰 Altın: ${engine.gold}", Color(0xFFFFD700))
-            StatusCard("❤️ Oba: %${engine.health}", if(engine.health > 30) Color.White else Color.Red)
-            StatusCard("🌪️ Dalga: ${engine.wave}", Color.Cyan)
-            
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                "Yeni Kule: 75 Altın (Ekrana Tıkla)", 
-                color = Color.White.copy(alpha = 0.8f), 
-                fontSize = 14.sp, 
-                fontWeight = FontWeight.Bold,
-                style = TextStyle(shadow = Shadow(Color.Black, blurRadius = 5f))
-            )
+        // UI
+        GameUI(engine)
+    }
+}
+
+private fun drawGround(scope: DrawScope) {
+    // Çimen dokusu için rastgele noktalar
+    scope.drawRect(Brush.verticalGradient(listOf(Color(0xFF2E7D32), Color(0xFF1B5E20))))
+}
+
+private fun drawCastleTower(scope: DrawScope, t: Tower) {
+    // Kule Gövdesi (Taş dokulu)
+    scope.drawRect(Color(0xFF424242), Offset(t.x - 50f, t.y - 100f), Size(100f, 120f))
+    // Üst Surlar
+    for(i in 0..2) {
+        scope.drawRect(Color(0xFF212121), Offset(t.x - 55f + (i*40f), t.y - 120f), Size(30f, 30f))
+    }
+    // Mazgal Penceresi
+    scope.drawRect(Color.Black, Offset(t.x - 10f, t.y - 70f), Size(20f, 30f))
+}
+
+private fun drawMonster(scope: DrawScope, e: Enemy) {
+    scope.rotate(e.angle, Offset(e.x, e.y)) {
+        // Gövde
+        drawCircle(e.type.color, radius = e.type.size, center = Offset(e.x, e.y))
+        // Gözler
+        drawCircle(Color.White, radius = e.type.size/4, center = Offset(e.x - e.type.size/3, e.y - e.type.size/4))
+        drawCircle(Color.White, radius = e.type.size/4, center = Offset(e.x + e.type.size/3, e.y - e.type.size/4))
+        drawCircle(Color.Red, radius = 5f, center = Offset(e.x - e.type.size/3, e.y - e.type.size/4))
+        drawCircle(Color.Red, radius = 5f, center = Offset(e.x + e.type.size/3, e.y - e.type.size/4))
+        // Pençeler/Boynuzlar
+        val path = Path().apply {
+            moveTo(e.x - e.type.size, e.y)
+            lineTo(e.x - e.type.size - 20f, e.y - 40f)
+            lineTo(e.x - e.type.size + 10f, e.y - 10f)
+            close()
         }
-        
-        // OYUN BİTTİ EKRANI
-        if(engine.health <= 0) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("OBA YAĞMALANDI!", color = Color.Red, fontSize = 44.sp, fontWeight = FontWeight.Black)
-                    Text("Puan: ${engine.score}\nUlaşılan Dalga: ${engine.wave}", color = Color.White, fontSize = 24.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                }
-            }
+        drawPath(path, e.type.color)
+    }
+    
+    // Can Barı (Küçük ve şık)
+    val barWidth = e.type.size * 2
+    scope.drawRect(Color.Gray, Offset(e.x - e.type.size, e.y - e.type.size - 20f), Size(barWidth, 8f))
+    scope.drawRect(Color.Red, Offset(e.x - e.type.size, e.y - e.type.size - 20f), Size(barWidth * (e.currentHealth.toFloat()/e.type.health), 8f))
+}
+
+@Composable
+fun GameUI(engine: KingShotEngine) {
+    Column(modifier = Modifier.padding(24.dp)) {
+        Text("OBA SAVUNMASI", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+        Spacer(Modifier.height(8.dp))
+        Row {
+            StatItem("💰 ${engine.gold}", Color(0xFFFFD600))
+            Spacer(Modifier.width(16.dp))
+            StatItem("🛡️ %${engine.health}", if(engine.health > 30) Color.White else Color.Red)
+        }
+    }
+    
+    if (engine.health <= 0) {
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(0.8f)), contentAlignment = Alignment.Center) {
+            Text("OBA DÜŞTÜ!", color = Color.Red, fontSize = 50.sp, fontWeight = FontWeight.Black)
         }
     }
 }
 
 @Composable
-fun StatusCard(text: String, color: Color) {
-    Text(
-        text = text,
-        style = TextStyle(
-            color = color,
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Black,
-            shadow = Shadow(Color.Black, offset = Offset(2f, 2f), blurRadius = 8f)
-        ),
-        modifier = Modifier.padding(vertical = 2.dp)
-    )
+fun StatItem(label: String, color: Color) {
+    Text(label, color = color, fontSize = 20.sp, fontWeight = FontWeight.Bold, 
+        style = TextStyle(shadow = Shadow(Color.Black, Offset(2f, 2f), 4f)))
 }
 
 class MainActivity : ComponentActivity() {
