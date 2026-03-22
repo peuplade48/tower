@@ -20,12 +20,14 @@ jobs:
         distribution: 'temurin'
         cache: gradle
 
-    # Gradle Wrapper eksik olduğu için doğrudan sisteme yüklü gradle kullanıyoruz
+    # Gradle Wrapper eksik olduğu için belirli bir Gradle sürümünü kuruyoruz
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: 8.5
 
     - name: Build with Gradle
-      # 'gradlew' yerine doğrudan 'gradle' komutunu çağırıyoruz
+      # Sistemdeki yüklü gradle ile derleme yapıyoruz
       run: gradle assembleDebug
 
     - name: Upload APK
