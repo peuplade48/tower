@@ -15,9 +15,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        vectorDrawables {
-            useSupportLibrary = true
-        }
+        
+        // Hatalı olan blok düzeltildi
+        vectorDrawables.useSupportLibrary = true
     }
 
     buildTypes {
