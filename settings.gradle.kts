@@ -4,11 +4,15 @@ google()
 mavenCentral()
 gradlePluginPortal()
 }
-}dependencyResolutionManagement {
+}
+
+dependencyResolutionManagement {
 repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
 repositories {
 google()
 mavenCentral()
 }
-}rootProject.name = "KingShotClone"
+}
+
+rootProject.name = "KingShotClone"
 include(":app")
