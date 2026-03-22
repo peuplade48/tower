@@ -3,14 +3,12 @@ name: Android Release Build
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Release oluşturabilmek için gerekli yazma izni
+      contents: write
 
     steps:
     - uses: actions/checkout@v4
@@ -27,11 +25,19 @@ jobs:
       with:
         gradle-version: 8.5
 
+    # KRİTİK ADIM: gradlew dosyasını kontrol et, yoksa oluştur ve izin ver
+    - name: Make Gradle Wrapper Executable
+      run: |
+        if [ ! -f gradlew ]; then 
+          gradle wrapper 
+        fi
+        chmod +x gradlew
+
     - name: Build Release APK
-      run: gradle assembleDebug
+      run: ./gradlew assembleDebug --stacktrace
 
     - name: Create GitHub Release
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      if: success() && github.ref == 'refs/heads/main'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: v${{ github.run_number }}
