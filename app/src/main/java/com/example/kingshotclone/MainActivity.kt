@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -12,10 +13,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -23,32 +28,34 @@ import kotlinx.coroutines.isActive
 import kotlin.math.*
 import kotlin.random.Random
 
-// --- HİKAYE VE DÜŞMAN TİPLERİ ---
+// --- OYUN AYARLARI VE GÖRSEL VARLIKLAR (EMOJİLER) ---
 
-enum class EnemyType(val color: Color, val health: Int, val speed: Float, val reward: Int) {
-    GULYABANI(Color(0xFF4E342E), 30, 4f, 15),       // Standart düşman
-    KARAKONCOLOS(Color(0xFF1B5E20), 80, 2.5f, 40),  // Tank düşman
-    AL_KARISI(Color(0xFFB71C1C), 25, 7.5f, 25)      // Hızlı düşman
+enum class EnemyType(val emoji: String, val health: Int, val speed: Float, val reward: Int) {
+    GULYABANI("👹", 40, 3.8f, 15),
+    KARAKONCOLOS("🐗", 120, 2.0f, 50),
+    AL_KARISI("🧛", 30, 8.0f, 30)
 }
 
 data class Enemy(
     var x: Float,
     var y: Float,
     val type: EnemyType,
-    var currentHealth: Int
+    var currentHealth: Int,
+    val id: Long = Random.nextLong()
 )
 
 data class Tower(
     val x: Float,
     val y: Float,
-    val color: Color = Color(0xFF8D6E63)
+    val level: Int = 1
 )
 
 data class Arrow(
     var x: Float,
     var y: Float,
     val targetX: Float,
-    val targetY: Float
+    val targetY: Float,
+    val angle: Float
 )
 
 // --- OYUN MOTORU ---
@@ -58,7 +65,7 @@ class KingShotEngine {
     var towers = mutableStateListOf<Tower>()
     var arrows = mutableStateListOf<Arrow>()
     
-    var gold by mutableIntStateOf(100)
+    var gold by mutableIntStateOf(250)
     var health by mutableIntStateOf(100)
     var score by mutableIntStateOf(0)
     var wave by mutableIntStateOf(1)
@@ -70,66 +77,78 @@ class KingShotEngine {
         if (health <= 0) return
 
         val currentTime = System.currentTimeMillis()
-        val spawnRate = max(400L, 2200L - (wave * 120L))
+        val spawnRate = max(400, 2500 - (wave * 150)).toLong()
         
+        // Düşman Oluşturma
         if (currentTime - lastSpawnTime > spawnRate) {
             val type = when {
-                wave > 5 && Random.nextFloat() < 0.25f -> EnemyType.KARAKONCOLOS
-                wave > 3 && Random.nextFloat() < 0.35f -> EnemyType.AL_KARISI
+                wave > 5 && Random.nextFloat() < 0.3f -> EnemyType.KARAKONCOLOS
+                wave > 2 && Random.nextFloat() < 0.4f -> EnemyType.AL_KARISI
                 else -> EnemyType.GULYABANI
             }
-            // HATA DÜZELTME: Float aralığı yerine Random.nextFloat() kullanıldı
-            val randomX = 100f + Random.nextFloat() * (width - 200f)
-            enemies.add(Enemy(randomX, -50f, type, type.health))
+            val spawnX = 100f + Random.nextFloat() * (width - 200f)
+            enemies.add(Enemy(spawnX, -100f, type, type.health))
             lastSpawnTime = currentTime
         }
 
-        val enemyIterator = enemies.iterator()
+        // Düşman Hareketleri
+        val enemyIterator = enemies.listIterator()
         while (enemyIterator.hasNext()) {
             val enemy = enemyIterator.next()
             enemy.y += enemy.type.speed
             
-            if (enemy.y > height - 250f) {
-                health -= 10
+            // Oba Savunma Hattına Ulaştı mı?
+            if (enemy.y > height - 350f) {
+                health = max(0, health - 10)
                 enemyIterator.remove()
             }
         }
 
-        if (currentTime - lastShotTime > 750) {
+        // Kule Atış Mantığı
+        if (currentTime - lastShotTime > 800) {
             towers.forEach { tower ->
                 val target = enemies.minByOrNull { dist(it.x, it.y, tower.x, tower.y) }
-                if (target != null && dist(target.x, target.y, tower.x, tower.y) < 600f) {
-                    arrows.add(Arrow(tower.x, tower.y, target.x, target.y))
+                if (target != null && dist(target.x, target.y, tower.x, tower.y) < 800f) {
+                    val dx = target.x - tower.x
+                    val dy = target.y - tower.y
+                    arrows.add(Arrow(tower.x, tower.y, target.x, target.y, atan2(dy, dx)))
                 }
             }
             lastShotTime = currentTime
         }
 
-        val arrowIterator = arrows.iterator()
+        // Ok Hareketleri ve Çarpışma
+        val arrowIterator = arrows.listIterator()
         while (arrowIterator.hasNext()) {
             val arrow = arrowIterator.next()
-            val dx = arrow.targetX - arrow.x
-            val dy = arrow.targetY - arrow.y
-            val angle = atan2(dy, dx)
-            
-            arrow.x += cos(angle) * 30f
-            arrow.y += sin(angle) * 30f
+            arrow.x += cos(arrow.angle) * 35f
+            arrow.y += sin(arrow.angle) * 35f
 
-            val hitEnemy = enemies.find { dist(it.x, it.y, arrow.x, arrow.y) < 45f }
+            val hitEnemy = enemies.find { dist(it.x, it.y, arrow.x, arrow.y) < 60f }
             if (hitEnemy != null) {
-                hitEnemy.currentHealth -= 15
+                hitEnemy.currentHealth -= 20
                 if (hitEnemy.currentHealth <= 0) {
                     gold += hitEnemy.type.reward
-                    score += hitEnemy.type.reward * 2
+                    score += hitEnemy.type.reward * 5
                     enemies.remove(hitEnemy)
-                    if (score > 0 && score % 500 == 0) wave++
+                    if (score > 0 && score % 1000 == 0) wave++
                 }
                 arrowIterator.remove()
                 continue
             }
             
-            if (arrow.y < -100 || arrow.x < -100 || arrow.x > width + 100 || arrow.y > height + 100) {
+            if (arrow.y < -100 || arrow.y > height + 100 || arrow.x < -100 || arrow.x > width + 100) {
                 arrowIterator.remove()
+            }
+        }
+    }
+
+    fun buildTower(x: Float, y: Float) {
+        val cost = 75
+        if (gold >= cost && y < 1400f && y > 400f) {
+            if (towers.none { dist(it.x, it.y, x, y) < 180f }) {
+                towers.add(Tower(x, y))
+                gold -= cost
             }
         }
     }
@@ -137,14 +156,18 @@ class KingShotEngine {
     private fun dist(x1: Float, y1: Float, x2: Float, y2: Float) = sqrt((x2-x1).pow(2) + (y2-y1).pow(2))
 }
 
+// --- GÖRSEL BİLEŞEN ---
+
 @Composable
 fun KingShotGame() {
     val engine = remember { KingShotEngine() }
     var canvasSize by remember { mutableStateOf(Offset.Zero) }
+    val textMeasurer = rememberTextMeasurer()
 
     LaunchedEffect(Unit) {
-        engine.towers.add(Tower(250f, 1550f))
-        engine.towers.add(Tower(850f, 1550f))
+        // Başlangıç kuleleri
+        engine.towers.add(Tower(300f, 1350f))
+        engine.towers.add(Tower(800f, 1350f))
         
         while(isActive) {
             if (canvasSize.x > 0) engine.update(canvasSize.x, canvasSize.y)
@@ -153,86 +176,111 @@ fun KingShotGame() {
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF2E7D32))) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        Canvas(modifier = Modifier
+            .fillMaxSize()
+            .clickable { offset -> engine.buildTower(offset.x, offset.y) }
+        ) {
             canvasSize = Offset(size.width, size.height)
             
-            // Arka Plan
-            drawRect(color = Color(0xFF795548), size = size)
-
-            // Savunma Hattı
+            // 1. ZEMİN VE YOL (Bozkır havası)
             drawRect(
-                color = Color(0xFF3E2723), 
-                topLeft = Offset(0f, size.height - 280f), 
-                size = Size(size.width, 280f)
+                brush = Brush.verticalGradient(listOf(Color(0xFF388E3C), Color(0xFF2E7D32))),
+                size = size
+            )
+            
+            // Patika yol
+            drawRect(
+                color = Color(0xFF8D6E63).copy(alpha = 0.3f),
+                topLeft = Offset(size.width * 0.2f, 0f),
+                size = Size(size.width * 0.6f, size.height)
             )
 
-            // Düşmanlar
-            engine.enemies.forEach { enemy ->
-                drawCircle(enemy.type.color, radius = 35f, center = Offset(enemy.x, enemy.y))
-                drawRect(
-                    color = Color.Red, 
-                    topLeft = Offset(enemy.x - 35f, enemy.y - 60f), 
-                    size = Size(70f, 8f)
-                )
-                drawRect(
-                    color = Color.Green, 
-                    topLeft = Offset(enemy.x - 35f, enemy.y - 60f), 
-                    size = Size(70f * (enemy.currentHealth.toFloat() / enemy.type.health), 8f)
-                )
+            // 2. OBA / SAVUNMA HATTI (Alt Kısım)
+            drawRect(
+                color = Color(0xFF4E342E),
+                topLeft = Offset(0f, size.height - 350f),
+                size = Size(size.width, 350f)
+            )
+            // Çadır emojileri (Oba görünümü)
+            for (i in 0..5) {
+                drawText(textMeasurer, "⛺", Offset(i * (size.width/5) - 40f, size.height - 250f), style = TextStyle(fontSize = 50.sp))
             }
 
-            // Kuleler
+            // 3. KULELER
             engine.towers.forEach { tower ->
-                drawRect(
-                    color = tower.color, 
-                    topLeft = Offset(tower.x - 60f, tower.y - 120f), 
-                    size = Size(120f, 140f)
-                )
-                drawCircle(Color(0xFF4E342E), radius = 50f, center = Offset(tower.x, tower.y - 130f))
+                // Kule tabanı
+                drawRect(Color(0xFF5D4037), Offset(tower.x - 60f, tower.y - 80f), Size(120f, 100f))
+                // Gözcü/Okçu
+                drawText(textMeasurer, "🏹", Offset(tower.x - 45f, tower.y - 150f), style = TextStyle(fontSize = 45.sp))
+                // Kule bayrağı
+                drawRect(Color.Red, Offset(tower.x + 40f, tower.y - 140f), Size(30f, 20f))
             }
 
-            // Oklar
-            engine.arrows.forEach { arrow ->
-                drawLine(
-                    color = Color(0xFFFFEB3B), 
-                    start = Offset(arrow.x, arrow.y), 
-                    end = Offset(arrow.x - 15f, arrow.y - 15f), 
-                    strokeWidth = 6f
+            // 4. DÜŞMANLAR
+            engine.enemies.forEach { enemy ->
+                // Gölge
+                drawCircle(Color.Black.copy(alpha = 0.2f), radius = 30f, center = Offset(enemy.x, enemy.y + 20f))
+                
+                // Canavar Emojisi
+                drawText(textMeasurer, enemy.type.emoji, Offset(enemy.x - 50f, enemy.y - 60f), style = TextStyle(fontSize = 50.sp))
+                
+                // Can Barı
+                val healthWidth = 100f
+                drawRect(Color.Black, Offset(enemy.x - 50f, enemy.y - 90f), Size(healthWidth, 10f))
+                drawRect(
+                    if(enemy.currentHealth > enemy.type.health/2) Color.Green else Color.Red,
+                    Offset(enemy.x - 50f, enemy.y - 90f),
+                    Size(healthWidth * (enemy.currentHealth.toFloat() / enemy.type.health), 10f)
                 )
+            }
+
+            // 5. OKLAR
+            engine.arrows.forEach { arrow ->
+                drawCircle(Color(0xFFFFD700), radius = 6f, center = Offset(arrow.x, arrow.y))
+                // İz efekti
+                drawLine(Color(0xFFEEEEEE), Offset(arrow.x, arrow.y), Offset(arrow.x - cos(arrow.angle)*30, arrow.y - sin(arrow.angle)*30), strokeWidth = 3f)
             }
         }
 
-        Column(modifier = Modifier.padding(24.dp).align(Alignment.TopStart)) {
-            GameInfoText("ALTIN: ${engine.gold}", Color(0xFFFFD700))
-            GameInfoText("OBA SAĞLIĞI: %${engine.health}", if(engine.health > 30) Color.White else Color.Red)
-            GameInfoText("DALGA: ${engine.wave}", Color.Cyan)
+        // ARAYÜZ (UI)
+        Column(modifier = Modifier.padding(20.dp).align(Alignment.TopStart)) {
+            StatusCard("💰 Altın: ${engine.gold}", Color(0xFFFFD700))
+            StatusCard("❤️ Oba: %${engine.health}", if(engine.health > 30) Color.White else Color.Red)
+            StatusCard("🌪️ Dalga: ${engine.wave}", Color.Cyan)
+            
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                "Yeni Kule: 75 Altın (Ekrana Tıkla)", 
+                color = Color.White.copy(alpha = 0.8f), 
+                fontSize = 14.sp, 
+                fontWeight = FontWeight.Bold,
+                style = TextStyle(shadow = Shadow(Color.Black, blurRadius = 5f))
+            )
         }
         
+        // OYUN BİTTİ EKRANI
         if(engine.health <= 0) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)), contentAlignment = Alignment.Center) {
-                Text(
-                    text = "OBA DÜŞTÜ!\nSkor: ${engine.score}\nDalga: ${engine.wave}", 
-                    color = Color.Red, 
-                    fontSize = 42.sp, 
-                    fontWeight = FontWeight.Bold, 
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("OBA YAĞMALANDI!", color = Color.Red, fontSize = 44.sp, fontWeight = FontWeight.Black)
+                    Text("Puan: ${engine.score}\nUlaşılan Dalga: ${engine.wave}", color = Color.White, fontSize = 24.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
             }
         }
     }
 }
 
 @Composable
-fun GameInfoText(text: String, color: Color) {
+fun StatusCard(text: String, color: Color) {
     Text(
         text = text,
         style = TextStyle(
             color = color,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.ExtraBold,
-            shadow = Shadow(Color.Black, blurRadius = 10f)
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Black,
+            shadow = Shadow(Color.Black, offset = Offset(2f, 2f), blurRadius = 8f)
         ),
-        modifier = Modifier.padding(vertical = 4.dp)
+        modifier = Modifier.padding(vertical = 2.dp)
     )
 }
 
