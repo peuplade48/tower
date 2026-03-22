@@ -19,7 +19,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlin.math.*
+import kotlin.random.Random
 
 // --- HİKAYE VE DÜŞMAN TİPLERİ ---
 
@@ -72,11 +74,13 @@ class KingShotEngine {
         
         if (currentTime - lastSpawnTime > spawnRate) {
             val type = when {
-                wave > 5 && Math.random() < 0.25 -> EnemyType.KARAKONCOLOS
-                wave > 3 && Math.random() < 0.35 -> EnemyType.AL_KARISI
+                wave > 5 && Random.nextFloat() < 0.25f -> EnemyType.KARAKONCOLOS
+                wave > 3 && Random.nextFloat() < 0.35f -> EnemyType.AL_KARISI
                 else -> EnemyType.GULYABANI
             }
-            enemies.add(Enemy((100f..(width - 100f)).random(), -50f, type, type.health))
+            // HATA DÜZELTME: Float aralığı yerine Random.nextFloat() kullanıldı
+            val randomX = 100f + Random.nextFloat() * (width - 200f)
+            enemies.add(Enemy(randomX, -50f, type, type.health))
             lastSpawnTime = currentTime
         }
 
@@ -142,7 +146,7 @@ fun KingShotGame() {
         engine.towers.add(Tower(250f, 1550f))
         engine.towers.add(Tower(850f, 1550f))
         
-        while(true) {
+        while(isActive) {
             if (canvasSize.x > 0) engine.update(canvasSize.x, canvasSize.y)
             delay(16)
         }
@@ -155,7 +159,7 @@ fun KingShotGame() {
             // Arka Plan
             drawRect(color = Color(0xFF795548), size = size)
 
-            // Savunma Hattı - Hata Düzeltildi: Size() constructor kullanıldı
+            // Savunma Hattı
             drawRect(
                 color = Color(0xFF3E2723), 
                 topLeft = Offset(0f, size.height - 280f), 
