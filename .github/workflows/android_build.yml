@@ -11,9 +11,10 @@ jobs:
       contents: write
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-    - name: set up JDK 17
+    - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
@@ -25,17 +26,18 @@ jobs:
       with:
         gradle-version: 8.5
 
-    # KRİTİK ADIM: gradlew dosyasını kontrol et, yoksa oluştur ve izin ver
-    - name: Make Gradle Wrapper Executable
+    # Proje dizininde gradlew dosyasının olduğundan ve çalışabilir olduğundan emin oluyoruz
+    - name: Prepare Gradle Wrapper
       run: |
         if [ ! -f gradlew ]; then 
           gradle wrapper 
         fi
         chmod +x gradlew
 
-    - name: Build Release APK
+    - name: Build Debug APK
       run: ./gradlew assembleDebug --stacktrace
 
+    # Derleme başarılı olursa otomatik olarak yeni bir GitHub Release oluşturur
     - name: Create GitHub Release
       if: success() && github.ref == 'refs/heads/main'
       uses: softprops/action-gh-release@v1
