@@ -5,7 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -178,7 +179,12 @@ fun KingShotGame() {
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF2E7D32))) {
         Canvas(modifier = Modifier
             .fillMaxSize()
-            .clickable { offset -> engine.buildTower(offset.x, offset.y) }
+            // DÜZELTME: Koordinatları almak için pointerInput ve detectTapGestures kullanıyoruz
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    engine.buildTower(offset.x, offset.y)
+                }
+            }
         ) {
             canvasSize = Offset(size.width, size.height)
             
