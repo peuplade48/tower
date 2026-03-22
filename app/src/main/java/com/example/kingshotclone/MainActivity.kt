@@ -5,13 +5,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.TextStyle
@@ -21,14 +21,12 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlin.math.*
 
-/**
- * KingShot: Arpagu'nun Savunması - Gelişmiş Sürüm
- */
+// --- HİKAYE VE DÜŞMAN TİPLERİ ---
 
 enum class EnemyType(val color: Color, val health: Int, val speed: Float, val reward: Int) {
-    GULYABANI(Color(0xFF4E342E), 35, 4.2f, 15),
-    KARAKONCOLOS(Color(0xFF1B5E20), 100, 2.3f, 50),
-    AL_KARISI(Color(0xFFB71C1C), 25, 8.5f, 30)
+    GULYABANI(Color(0xFF4E342E), 30, 4f, 15),       // Standart düşman
+    KARAKONCOLOS(Color(0xFF1B5E20), 80, 2.5f, 40),  // Tank düşman
+    AL_KARISI(Color(0xFFB71C1C), 25, 7.5f, 25)      // Hızlı düşman
 }
 
 data class Enemy(
@@ -51,12 +49,14 @@ data class Arrow(
     val targetY: Float
 )
 
+// --- OYUN MOTORU ---
+
 class KingShotEngine {
     var enemies = mutableStateListOf<Enemy>()
     var towers = mutableStateListOf<Tower>()
     var arrows = mutableStateListOf<Arrow>()
     
-    var gold by mutableIntStateOf(200)
+    var gold by mutableIntStateOf(100)
     var health by mutableIntStateOf(100)
     var score by mutableIntStateOf(0)
     var wave by mutableIntStateOf(1)
@@ -68,16 +68,15 @@ class KingShotEngine {
         if (health <= 0) return
 
         val currentTime = System.currentTimeMillis()
-        val spawnRate = max(350, 2300 - (wave * 150)).toLong()
+        val spawnRate = max(400L, 2200L - (wave * 120L))
         
         if (currentTime - lastSpawnTime > spawnRate) {
             val type = when {
-                wave > 6 && Math.random() < 0.3 -> EnemyType.KARAKONCOLOS
-                wave > 3 && Math.random() < 0.4 -> EnemyType.AL_KARISI
+                wave > 5 && Math.random() < 0.25 -> EnemyType.KARAKONCOLOS
+                wave > 3 && Math.random() < 0.35 -> EnemyType.AL_KARISI
                 else -> EnemyType.GULYABANI
             }
-            val spawnX = (width * 0.25f + (Math.random().toFloat() * width * 0.5f))
-            enemies.add(Enemy(spawnX, -50f, type, type.health))
+            enemies.add(Enemy((100f..(width - 100f)).random(), -50f, type, type.health))
             lastSpawnTime = currentTime
         }
 
@@ -85,17 +84,17 @@ class KingShotEngine {
         while (enemyIterator.hasNext()) {
             val enemy = enemyIterator.next()
             enemy.y += enemy.type.speed
-            if (enemy.y > height - 280f) {
-                health -= 15
-                enemies.remove(enemy)
-                break
+            
+            if (enemy.y > height - 250f) {
+                health -= 10
+                enemyIterator.remove()
             }
         }
 
-        if (currentTime - lastShotTime > 700) {
+        if (currentTime - lastShotTime > 750) {
             towers.forEach { tower ->
                 val target = enemies.minByOrNull { dist(it.x, it.y, tower.x, tower.y) }
-                if (target != null && dist(target.x, target.y, tower.x, tower.y) < 750f) {
+                if (target != null && dist(target.x, target.y, tower.x, tower.y) < 600f) {
                     arrows.add(Arrow(tower.x, tower.y, target.x, target.y))
                 }
             }
@@ -109,31 +108,24 @@ class KingShotEngine {
             val dy = arrow.targetY - arrow.y
             val angle = atan2(dy, dx)
             
-            arrow.x += cos(angle) * 40f
-            arrow.y += sin(angle) * 40f
+            arrow.x += cos(angle) * 30f
+            arrow.y += sin(angle) * 30f
 
-            val hitEnemy = enemies.find { dist(it.x, it.y, arrow.x, arrow.y) < 55f }
+            val hitEnemy = enemies.find { dist(it.x, it.y, arrow.x, arrow.y) < 45f }
             if (hitEnemy != null) {
-                hitEnemy.currentHealth -= 25
+                hitEnemy.currentHealth -= 15
                 if (hitEnemy.currentHealth <= 0) {
                     gold += hitEnemy.type.reward
-                    score += hitEnemy.type.reward * 3
+                    score += hitEnemy.type.reward * 2
                     enemies.remove(hitEnemy)
-                    if (score > 0 && score % 1200 == 0) wave++
+                    if (score > 0 && score % 500 == 0) wave++
                 }
-                arrows.remove(arrow)
-                break
+                arrowIterator.remove()
+                continue
             }
-            if (arrow.y < -100 || arrow.x < -100 || arrow.x > width + 100 || arrow.y > height + 100) arrows.remove(arrow)
-        }
-    }
-
-    fun buildTower(x: Float, y: Float) {
-        val cost = 60
-        if (gold >= cost && y < 1400f) {
-            if (towers.none { dist(it.x, it.y, x, y) < 170f }) {
-                towers.add(Tower(x, y))
-                gold -= cost
+            
+            if (arrow.y < -100 || arrow.x < -100 || arrow.x > width + 100 || arrow.y > height + 100) {
+                arrowIterator.remove()
             }
         }
     }
@@ -147,58 +139,97 @@ fun KingShotGame() {
     var canvasSize by remember { mutableStateOf(Offset.Zero) }
 
     LaunchedEffect(Unit) {
-        engine.towers.add(Tower(200f, 1300f))
-        engine.towers.add(Tower(size.run { 900f }, 1300f))
+        engine.towers.add(Tower(250f, 1550f))
+        engine.towers.add(Tower(850f, 1550f))
+        
         while(true) {
             if (canvasSize.x > 0) engine.update(canvasSize.x, canvasSize.y)
             delay(16)
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1B5E20))) {
-        Canvas(modifier = Modifier.fillMaxSize().clickable { offset -> engine.buildTower(offset.x, offset.y) }) {
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF2E7D32))) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
             canvasSize = Offset(size.width, size.height)
-            drawRect(Color(0xFF5D4037), topLeft = Offset(size.width * 0.25f, 0f), size = androidx.compose.ui.geometry.Size(size.width * 0.5f, size.height))
-            drawRect(Color(0xFF3E2723), topLeft = Offset(0f, size.height - 280f), size = androidx.compose.ui.geometry.Size(size.width, 280f))
+            
+            // Arka Plan
+            drawRect(color = Color(0xFF795548), size = size)
 
+            // Savunma Hattı - Hata Düzeltildi: Size() constructor kullanıldı
+            drawRect(
+                color = Color(0xFF3E2723), 
+                topLeft = Offset(0f, size.height - 280f), 
+                size = Size(size.width, 280f)
+            )
+
+            // Düşmanlar
             engine.enemies.forEach { enemy ->
-                drawCircle(enemy.type.color, radius = 40f, center = Offset(enemy.x, enemy.y))
-                drawRect(Color.Red, Offset(enemy.x - 40f, enemy.y - 70f), size = androidx.compose.ui.geometry.Size(80f, 12f))
-                drawRect(Color.Green, Offset(enemy.x - 40f, enemy.y - 70f), size = androidx.compose.ui.geometry.Size(80f * (enemy.currentHealth.toFloat() / enemy.type.health), 12f))
+                drawCircle(enemy.type.color, radius = 35f, center = Offset(enemy.x, enemy.y))
+                drawRect(
+                    color = Color.Red, 
+                    topLeft = Offset(enemy.x - 35f, enemy.y - 60f), 
+                    size = Size(70f, 8f)
+                )
+                drawRect(
+                    color = Color.Green, 
+                    topLeft = Offset(enemy.x - 35f, enemy.y - 60f), 
+                    size = Size(70f * (enemy.currentHealth.toFloat() / enemy.type.health), 8f)
+                )
             }
 
+            // Kuleler
             engine.towers.forEach { tower ->
-                drawRect(tower.color, Offset(tower.x - 70f, tower.y - 90f), size = androidx.compose.ui.geometry.Size(140f, 120f))
-                drawCircle(Color(0xFF4E342E), radius = 65f, center = Offset(tower.x, tower.y - 95f))
-                drawCircle(Color(0xFFD4AF37), radius = 15f, center = Offset(tower.x, tower.y - 160f))
+                drawRect(
+                    color = tower.color, 
+                    topLeft = Offset(tower.x - 60f, tower.y - 120f), 
+                    size = Size(120f, 140f)
+                )
+                drawCircle(Color(0xFF4E342E), radius = 50f, center = Offset(tower.x, tower.y - 130f))
             }
 
+            // Oklar
             engine.arrows.forEach { arrow ->
-                drawLine(Color(0xFFFFEB3B), start = Offset(arrow.x, arrow.y), end = Offset(arrow.x - 18f, arrow.y - 18f), strokeWidth = 9f)
+                drawLine(
+                    color = Color(0xFFFFEB3B), 
+                    start = Offset(arrow.x, arrow.y), 
+                    end = Offset(arrow.x - 15f, arrow.y - 15f), 
+                    strokeWidth = 6f
+                )
             }
         }
 
         Column(modifier = Modifier.padding(24.dp).align(Alignment.TopStart)) {
-            StatusText("ALTIN: ${engine.gold}", Color(0xFFFFD700))
-            StatusText("SAĞLIK: %${engine.health}", if(engine.health > 30) Color.White else Color.Red)
-            StatusText("DALGA: ${engine.wave}", Color.Cyan)
-            Text("İnşa: 60 Altın | Ekrana Tıkla!", color = Color.White.copy(alpha = 0.7f), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            GameInfoText("ALTIN: ${engine.gold}", Color(0xFFFFD700))
+            GameInfoText("OBA SAĞLIĞI: %${engine.health}", if(engine.health > 30) Color.White else Color.Red)
+            GameInfoText("DALGA: ${engine.wave}", Color.Cyan)
         }
         
         if(engine.health <= 0) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.9f)), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("OBA DÜŞTÜ!", color = Color.Red, fontSize = 50.sp, fontWeight = FontWeight.Bold)
-                    Text("Skor: ${engine.score}\nDalga: ${engine.wave}", color = Color.White, fontSize = 28.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                }
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "OBA DÜŞTÜ!\nSkor: ${engine.score}\nDalga: ${engine.wave}", 
+                    color = Color.Red, 
+                    fontSize = 42.sp, 
+                    fontWeight = FontWeight.Bold, 
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
             }
         }
     }
 }
 
 @Composable
-fun StatusText(text: String, color: Color) {
-    Text(text = text, style = TextStyle(color = color, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, shadow = Shadow(Color.Black, blurRadius = 14f)), modifier = Modifier.padding(vertical = 4.dp))
+fun GameInfoText(text: String, color: Color) {
+    Text(
+        text = text,
+        style = TextStyle(
+            color = color,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.ExtraBold,
+            shadow = Shadow(Color.Black, blurRadius = 10f)
+        ),
+        modifier = Modifier.padding(vertical = 4.dp)
+    )
 }
 
 class MainActivity : ComponentActivity() {
