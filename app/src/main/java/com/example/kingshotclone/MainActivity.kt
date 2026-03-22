@@ -16,13 +16,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -30,158 +28,180 @@ import kotlinx.coroutines.isActive
 import kotlin.math.*
 import kotlin.random.Random
 
-// --- MODELLER ---
+// --- GÖRSEL EFEKT MODELLERİ ---
 
-data class Particle(
+data class VisualParticle(
     var x: Float, var y: Float,
     var vx: Float, var vy: Float,
     var life: Float, val color: Color,
-    val size: Float = 5f
+    val size: Float,
+    val trail: MutableList<Offset> = mutableListOf()
 )
 
-enum class EnemyType(val color: Color, val health: Int, val speed: Float, val size: Float, val isBoss: Boolean = false) {
-    PIYADE(Color(0xFF43A047), 60, 3.0f, 45f),
-    KALKANLI(Color(0xFF757575), 150, 2.0f, 55f),
-    HIZLI_GÖLGE(Color(0xFF6A1B9A), 40, 6.0f, 35f),
-    DEV_YARATIK(Color(0xFF3E2723), 1000, 1.0f, 110f, true)
+data class DamageText(
+    val x: Float, var y: Float,
+    val text: String, var life: Float = 1f
+)
+
+// --- OYUN BİRİMLERİ ---
+
+enum class EnemyType(val color: Color, val hp: Int, val speed: Float, val scale: Float) {
+    GHOST(Color(0xFF81D4FA), 80, 3f, 1f),
+    ORC(Color(0xFF4CAF50), 250, 2f, 1.3f),
+    BOSS(Color(0xFFE91E63), 3000, 1f, 2.5f)
 }
 
 data class Enemy(
     var x: Float, var y: Float,
     val type: EnemyType,
-    var currentHealth: Int,
-    var slowDuration: Int = 0,
-    var id: Long = Random.nextLong()
+    var currentHp: Int,
+    var id: Long = Random.nextLong(),
+    var phase: Float = Random.nextFloat() * 10f
 )
 
-enum class TowerType(val color: Color, val cost: Int, val range: Float, val damage: Int, val isIce: Boolean = false) {
-    OKCU(Color(0xFF8D6E63), 100, 700f, 25),
-    BUZ(Color(0xFF4FC3F7), 200, 500f, 10, true)
+enum class TowerType(val color: Color, val cost: Int, val range: Float, val dmg: Int) {
+    PLASMA(Color(0xFF7C4DFF), 200, 700f, 40),
+    HELLFIRE(Color(0xFFFF5252), 500, 500f, 150)
 }
 
-data class Tower(val x: Float, val y: Float, val type: TowerType)
+data class Tower(
+    val x: Float, val y: Float,
+    val type: TowerType,
+    var level: Int = 1,
+    var angle: Float = 0f,
+    var heat: Float = 0f // Ateş ettikçe parlaması için
+)
 
-data class Projectile(var x: Float, var y: Float, val angle: Float, val isIce: Boolean)
+data class Projectile(
+    var x: Float, var y: Float,
+    val targetId: Long,
+    val color: Color,
+    val dmg: Int
+)
 
-// --- MOTOR ---
+// --- AAA OYUN MOTORU ---
 
-class KingShotEngine {
+class AAAGameEngine {
     var enemies = mutableStateListOf<Enemy>()
     var towers = mutableStateListOf<Tower>()
     var projectiles = mutableStateListOf<Projectile>()
-    var particles = mutableStateListOf<Particle>()
-    var clouds = mutableStateListOf<Offset>()
+    var particles = mutableStateListOf<VisualParticle>()
+    var damageTexts = mutableStateListOf<DamageText>()
     
-    var gold by mutableIntStateOf(400)
+    var gold by mutableIntStateOf(1000)
     var health by mutableIntStateOf(100)
     var wave by mutableIntStateOf(1)
-    var shakeAmount by mutableFloatStateOf(0f)
-    var selectedTowerType by mutableStateOf(TowerType.OKCU)
-
-    init {
-        repeat(5) { clouds.add(Offset(Random.nextFloat() * 1000, Random.nextFloat() * 2000)) }
-    }
+    var screenShake by mutableFloatStateOf(0f)
+    var time = 0f
 
     fun update(width: Float, height: Float) {
         if (health <= 0) return
-        if (shakeAmount > 0) shakeAmount *= 0.9f
+        time += 0.02f
+        if (screenShake > 0) screenShake *= 0.9f
 
-        // Bulut Hareketi
-        clouds.forEachIndexed { i, c ->
-            var newX = c.x + 0.5f
-            if (newX > width + 200) newX = -200f
-            clouds[i] = Offset(newX, c.y)
+        // Düşman Üretimi
+        if (Random.nextInt(100) < 3 + (wave / 2)) {
+            val type = if(Random.nextFloat() < 0.1f && wave > 3) EnemyType.BOSS else if(Random.nextFloat() < 0.3f) EnemyType.ORC else EnemyType.GHOST
+            enemies.add(Enemy(Random.nextFloat() * width, -100f, type, type.hp))
         }
 
-        // Düşman Spawn
-        if (Random.nextInt(200) < (3 + wave)) {
-            val type = when {
-                wave >= 5 && Random.nextFloat() < 0.05f -> EnemyType.DEV_YARATIK
-                Random.nextFloat() < 0.2f -> EnemyType.KALKANLI
-                Random.nextFloat() < 0.15f -> EnemyType.HIZLI_GÖLGE
-                else -> EnemyType.PIYADE
-            }
-            enemies.add(Enemy(Random.nextFloat() * width, -100f, type, type.health))
-        }
-
-        // Parçacıklar
+        // Parçacık Fiziği
         val pIter = particles.listIterator()
-        while(pIter.hasNext()){
+        while(pIter.hasNext()) {
             val p = pIter.next()
-            p.x += p.vx; p.y += p.vy
-            p.life -= 0.015f
+            p.trail.add(0, Offset(p.x, p.y))
+            if(p.trail.size > 5) p.trail.removeLast()
+            p.x += p.vx; p.y += p.vy; p.vy += 0.2f // Yerçekimi
+            p.life -= 0.02f
             if(p.life <= 0) pIter.remove()
         }
 
-        // Düşman Güncelleme
+        // Hasar Yazıları
+        damageTexts.forEach { it.y -= 2f; it.life -= 0.02f }
+        damageTexts.removeAll { it.life <= 0 }
+
+        // Düşman Hareket
         val eIter = enemies.listIterator()
-        while (eIter.hasNext()) {
+        while(eIter.hasNext()) {
             val e = eIter.next()
-            val currentSpeed = if(e.slowDuration > 0) e.type.speed * 0.4f else e.type.speed
-            e.y += currentSpeed
-            if(e.slowDuration > 0) e.slowDuration--
-            
-            if (e.y > height - 320f) {
-                health -= if(e.type.isBoss) 50 else 10
-                shakeAmount = 25f
-                createExplosion(e.x, e.y, Color.Red, 20)
+            e.y += e.type.speed
+            // Obaya saldırı
+            if (e.y > height - 300f) {
+                health -= if(e.type == EnemyType.BOSS) 50 else 10
+                screenShake = 50f
+                spawnExplosion(e.x, e.y, Color.Red, 40)
                 eIter.remove()
             }
         }
 
-        // Atış Mantığı
-        if (System.currentTimeMillis() % 1000 < 50) {
-            towers.forEach { t ->
-                val target = enemies.minByOrNull { sqrt((it.x-t.x).pow(2) + (it.y-t.y).pow(2)) }
-                if (target != null && sqrt((target.x-t.x).pow(2) + (target.y-t.y).pow(2)) < t.type.range) {
-                    projectiles.add(Projectile(t.x, t.y, atan2(target.y - t.y, target.x - t.x), t.type.isIce))
+        // Kule Mantığı
+        towers.forEach { t ->
+            if (t.heat > 0) t.heat *= 0.9f
+            val target = enemies.filter { sqrt((it.x-t.x).pow(2)+(it.y-t.y).pow(2)) < t.type.range }
+                                .minByOrNull { it.y }
+            
+            if (target != null) {
+                val dx = target.x - t.x
+                val dy = target.y - t.y
+                t.angle = atan2(dy, dx) * (180/PI).toFloat() + 90f
+                
+                if (Random.nextInt(100) < 5 * t.level) {
+                    projectiles.add(Projectile(t.x, t.y, target.id, t.type.color, t.type.dmg))
+                    t.heat = 1f
                 }
             }
         }
 
         // Mermiler
-        val projIter = projectiles.listIterator()
-        while (projIter.hasNext()) {
-            val p = projIter.next()
-            p.x += cos(p.angle) * 35f
-            p.y += sin(p.angle) * 35f
+        val prIter = projectiles.listIterator()
+        while(prIter.hasNext()) {
+            val p = prIter.next()
+            val target = enemies.find { it.id == p.targetId }
+            if (target == null) { prIter.remove(); continue }
 
-            val hit = enemies.find { sqrt((it.x-p.x).pow(2) + (it.y-p.y).pow(2)) < 60f }
-            if (hit != null) {
-                hit.currentHealth -= if(p.isIce) 10 else 30
-                if(p.isIce) hit.slowDuration = 100
-                createExplosion(p.x, p.y, if(p.isIce) Color.Cyan else hit.type.color, 8)
-                if (hit.currentHealth <= 0) {
-                    gold += if(hit.type.isBoss) 200 else 25
-                    if(gold > 2000 && wave < 10) wave++
-                    enemies.remove(hit)
+            val dx = target.x - p.x
+            val dy = target.y - p.y
+            val dist = sqrt(dx*dx + dy*dy)
+            
+            p.x += (dx/dist) * 25f
+            p.y += (dy/dist) * 25f
+
+            if (dist < 50f) {
+                target.currentHp -= p.dmg
+                damageTexts.add(DamageText(p.x, p.y, "-${p.dmg}"))
+                spawnExplosion(p.x, p.y, p.color, 10)
+                
+                if (target.currentHp <= 0) {
+                    gold += if(target.type == EnemyType.BOSS) 1000 else 50
+                    spawnExplosion(target.x, target.y, target.type.color, 30)
+                    enemies.remove(target)
                 }
-                projIter.remove()
-            } else if (p.y < -50 || p.y > height + 50) projIter.remove()
+                prIter.remove()
+            }
         }
     }
 
-    private fun createExplosion(x: Float, y: Float, color: Color, count: Int) {
+    private fun spawnExplosion(x: Float, y: Float, color: Color, count: Int) {
         repeat(count) {
-            particles.add(Particle(x, y, Random.nextFloat()*12-6, Random.nextFloat()*12-6, 1f, color))
+            particles.add(VisualParticle(x, y, Random.nextFloat()*16-8, Random.nextFloat()*16-8, 1f, color, 8f))
         }
     }
 
-    fun build(x: Float, y: Float) {
-        if (gold >= selectedTowerType.cost && y > 400f && y < 1400f) {
-            towers.add(Tower(x, y, selectedTowerType))
-            gold -= selectedTowerType.cost
+    fun build(x: Float, y: Float, type: TowerType) {
+        if (gold >= type.cost && y < 1400f) {
+            towers.add(Tower(x, y, type))
+            gold -= type.cost
         }
     }
 }
 
-// --- GÖRSEL ÇİZİMLER ---
+// --- GÖRSEL KATMAN (UI & CANVAS) ---
 
 @Composable
-fun KingShotGame() {
-    val engine = remember { KingShotEngine() }
+fun AAAGame() {
+    val engine = remember { AAAGameEngine() }
     var size by remember { mutableStateOf(Offset.Zero) }
-    val textMeasurer = rememberTextMeasurer()
+    var selectedType by remember { mutableStateOf(TowerType.PLASMA) }
 
     LaunchedEffect(Unit) {
         while(isActive) {
@@ -190,161 +210,164 @@ fun KingShotGame() {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1B5E20))) {
-        Canvas(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
-            detectTapGestures { engine.build(it.x, it.y) }
+    Box(Modifier.fillMaxSize().background(Color(0xFF020205))) {
+        Canvas(Modifier.fillMaxSize().pointerInput(Unit) {
+            detectTapGestures { engine.build(it.x, it.y, selectedType) }
         }) {
             size = Offset(this.size.width, this.size.height)
             
-            val shakeX = (Random.nextFloat() - 0.5f) * engine.shakeAmount
-            val shakeY = (Random.nextFloat() - 0.5f) * engine.shakeAmount
+            val shake = Offset((Random.nextFloat()-0.5f)*engine.screenShake, (Random.nextFloat()-0.5f)*engine.screenShake)
 
-            translate(left = shakeX, top = shakeY) {
-                // ZEMİN
-                drawRect(Brush.verticalGradient(listOf(Color(0xFF2E7D32), Color(0xFF1B5E20))))
+            translate(shake.x, shake.y) {
+                // 1. Derinlik (Vignette & Gradient Ground)
+                drawRect(Brush.verticalGradient(listOf(Color(0xFF0A0A1A), Color(0xFF020205))))
                 
-                // BULUTLAR (Atmosfer)
-                engine.clouds.forEach { c ->
-                    drawCircle(Color.White.copy(alpha = 0.15f), 150f, c)
-                    drawCircle(Color.White.copy(alpha = 0.1f), 100f, c + Offset(80f, 30f))
+                // Izgara Efekti (Neon Grid)
+                for(i in 0..15) {
+                    val y = (i * (size.y/15))
+                    drawLine(Color.White.copy(0.05f), Offset(0f, y), Offset(size.x, y), 2f)
                 }
 
-                // OBA (Alt Bölge)
-                drawOba(this)
-
-                // KULELER
-                engine.towers.forEach { drawAdvancedTower(this, it) }
-
-                // DÜŞMANLAR
-                engine.enemies.forEach { drawEpicMonster(this, it) }
-
-                // PROJELER
-                engine.projectiles.forEach { 
-                    drawCircle(if(it.isIce) Color.Cyan else Color(0xFFFFD600), 8f, Offset(it.x, it.y))
-                    if(!it.isIce) drawLine(Color.White, Offset(it.x, it.y), Offset(it.x - cos(it.angle)*30, it.y - sin(it.angle)*30), 3f)
+                // 2. Kuleler (AAA Mekanik Detaylar)
+                engine.towers.forEach { t ->
+                    drawTowerAAA(this, t, engine.time)
                 }
 
-                // PARÇACIKLAR
-                engine.particles.forEach { 
-                    drawCircle(it.color.copy(alpha = it.life), it.size * it.life, Offset(it.x, it.y))
+                // 3. Düşmanlar (Gölge ve Glow ile)
+                engine.enemies.forEach { e ->
+                    drawEnemyAAA(this, e, engine.time)
+                }
+
+                // 4. Parçacıklar (VFX Trail)
+                engine.particles.forEach { p ->
+                    p.trail.forEachIndexed { index, offset ->
+                        drawCircle(p.color.copy(alpha = p.life * (1f - index/5f)), p.size * (1f - index/5f), offset)
+                    }
+                    drawCircle(Color.White.copy(p.life), p.size * 0.5f, Offset(p.x, p.y))
+                }
+
+                // 5. Mermiler (Işık İzleri)
+                engine.projectiles.forEach { p ->
+                    drawCircle(p.color.copy(0.3f), 40f, Offset(p.x, p.y))
+                    drawCircle(p.color, 12f, Offset(p.x, p.y))
+                    drawCircle(Color.White, 6f, Offset(p.x, p.y))
+                }
+                
+                // 6. Hasar Yazıları
+                engine.damageTexts.forEach { dt ->
+                    // Canvas drawText karmaşık olduğu için basit görsel yapıyoruz
+                    drawCircle(Color.White.copy(dt.life), 5f, Offset(dt.x, dt.y))
                 }
             }
         }
 
-        // GELİŞMİŞ UI
-        GameUI(engine)
+        // --- ÜST PANEL (Glassmorphism) ---
+        GameOverlay(engine, selectedType) { selectedType = it }
     }
 }
 
-private fun drawOba(scope: DrawScope) {
-    val h = scope.size.height
-    val w = scope.size.width
-    // Savunma Hattı Çitleri
-    scope.drawRect(Color(0xFF3E2723), Offset(0f, h - 340f), Size(w, 40f))
-    for(i in 0..20) {
-        scope.drawLine(Color(0xFF5D4037), Offset(i * (w/20), h-350f), Offset(i * (w/20), h-300f), 10f)
+fun drawTowerAAA(scope: DrawScope, t: Tower, time: Float) {
+    scope.translate(t.x, t.y) {
+        // Alt Taban (Gölge)
+        scope.drawCircle(Color.Black.copy(0.5f), 70f, Offset(5f, 5f))
+        scope.drawCircle(Color.DarkGray, 65f)
+        
+        // Dönen Halkalar
+        scope.rotate(time * 100f) {
+            scope.drawCircle(t.type.color.copy(0.4f), 80f, style = Stroke(4f))
+            scope.drawRect(t.type.color, Offset(-10f, -85f), Size(20f, 10f))
+        }
+
+        // Kule Gövdesi
+        scope.rotate(t.angle) {
+            val towerColor = t.type.color
+            // Namlu
+            scope.drawRect(towerColor, Offset(-20f, -100f), Size(40f, 80f))
+            // Namlu Ucu (Heat Glow)
+            if (t.heat > 0.1f) {
+                scope.drawRect(Color.White.copy(t.heat), Offset(-20f, -105f), Size(40f, 10f))
+            }
+        }
     }
-    // Oba Zemini
-    scope.drawRect(Color(0xFF4E342E), Offset(0f, h-300f), Size(w, 300f))
 }
 
-private fun drawAdvancedTower(scope: DrawScope, t: Tower) {
-    val color = t.type.color
-    // Ana Gövde
-    scope.drawRect(color, Offset(t.x - 40f, t.y - 80f), Size(80f, 100f))
-    // Üst Kısım
-    scope.drawRect(Color(0xFF212121), Offset(t.x - 50f, t.y - 110f), Size(100f, 30f))
-    // Kule Tipi Göstergesi (Enerji Küresi)
-    scope.drawCircle(if(t.type.isIce) Color.Cyan else Color.Red, 15f, Offset(t.x, t.y - 120f))
-}
-
-private fun drawEpicMonster(scope: DrawScope, e: Enemy) {
-    val size = e.type.size
-    val color = if(e.slowDuration > 0) Color.Cyan else e.type.color
+fun drawEnemyAAA(scope: DrawScope, e: Enemy, time: Float) {
+    val s = e.type.scale
+    val bobbing = sin(time * 5f + e.phase) * 10f
     
-    scope.rotate(if(e.type.isBoss) 0f else (System.currentTimeMillis() % 360).toFloat() * 0.1f, Offset(e.x, e.y)) {
-        // Gövde (Zırhlı Görünüm)
-        scope.drawCircle(color, size, Offset(e.x, e.y))
-        scope.drawCircle(Color.Black.copy(0.3f), size * 0.7f, Offset(e.x, e.y))
+    scope.translate(e.x, e.y + bobbing) {
+        // Yer Gölgesi
+        scope.drawOval(Color.Black.copy(0.3f), Offset(-40f*s, 60f*s), Size(80f*s, 30f*s))
         
-        // Boynuzlar / Kalkan
-        if(e.type == EnemyType.KALKANLI) {
-            scope.drawRect(Color.LightGray, Offset(e.x + size * 0.5f, e.y - size), Size(15f, size * 2))
-        }
+        // Gövde (Bloom Etkisi)
+        scope.drawCircle(e.type.color.copy(0.2f), 60f * s)
+        scope.drawCircle(e.type.color, 45f * s)
         
-        // Gözler (Parlayan)
-        scope.drawCircle(Color.White, 8f, Offset(e.x - size*0.4f, e.y - size*0.3f))
-        scope.drawCircle(Color.White, 8f, Offset(e.x + size*0.4f, e.y - size*0.3f))
-        scope.drawCircle(Color.Red, 4f, Offset(e.x - size*0.4f, e.y - size*0.3f))
-        scope.drawCircle(Color.Red, 4f, Offset(e.x + size*0.4f, e.y - size*0.3f))
+        // Gözler (Parlama)
+        val eyeColor = if(e.type == EnemyType.BOSS) Color.White else Color.Red
+        scope.drawCircle(eyeColor, 8f * s, Offset(-15f*s, -10f*s))
+        scope.drawCircle(eyeColor, 8f * s, Offset(15f*s, -10f*s))
+        
+        // HP Bar (Sıvı Efekti)
+        val hpWidth = 100f * s
+        val currentHpWidth = hpWidth * (e.currentHp.toFloat() / e.type.hp)
+        scope.drawRect(Color.Black.copy(0.5f), Offset(-hpWidth/2, -80f*s), Size(hpWidth, 10f))
+        scope.drawRect(
+            Brush.horizontalGradient(listOf(Color.Red, Color.Magenta)),
+            Offset(-hpWidth/2, -80f*s), Size(currentHpWidth, 10f)
+        )
     }
-
-    // Boss Etiketi
-    if(e.type.isBoss) {
-        scope.drawCircle(Color.Yellow.copy(0.2f), size * 1.5f, Offset(e.x, e.y))
-    }
-
-    // Sağlık Barı
-    val healthPct = e.currentHealth.toFloat() / e.type.health
-    scope.drawRect(Color.Black, Offset(e.x - size, e.y - size - 25f), Size(size*2, 10f))
-    scope.drawRect(if(healthPct > 0.5) Color.Green else Color.Red, Offset(e.x - size, e.y - size - 25f), Size(size*2 * healthPct, 10f))
 }
 
 @Composable
-fun GameUI(engine: KingShotEngine) {
-    Box(Modifier.fillMaxSize()) {
-        // Üst Bilgi Paneli
-        Column(Modifier.padding(20.dp).align(Alignment.TopStart)) {
-            Text("ARPAGU: OBA SAVUNMASI", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black)
-            Row(Modifier.padding(top = 10.dp)) {
-                StatChip("💰 ${engine.gold}", Color(0xFFFFD600))
-                Spacer(Modifier.width(10.dp))
-                StatChip("🛡️ %${engine.health}", if(engine.health > 30) Color.White else Color.Red)
-                Spacer(Modifier.width(10.dp))
-                StatChip("🌊 Dalga ${engine.wave}", Color.Cyan)
+fun GameOverlay(engine: AAAGameEngine, selected: TowerType, onSelect: (TowerType) -> Unit) {
+    Box(Modifier.fillMaxSize().padding(20.dp)) {
+        // Skor ve Kaynaklar
+        Row(Modifier.fillMaxWidth().background(Color.White.copy(0.05f), androidx.compose.foundation.shape.RoundedCornerShape(20.dp)).padding(15.dp),
+            horizontalArrangement = Arrangement.SpaceBetween) {
+            Column {
+                Text("KINGSOT: OVERDRIVE", color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                Text("SEKTÖR ${engine.wave}", color = Color.Cyan)
+            }
+            Row {
+                StatView("💎 ${engine.gold}", Color(0xFF00E5FF))
+                Spacer(Modifier.width(20.dp))
+                StatView("🔋 %${engine.health}", if(engine.health > 25) Color.Green else Color.Red)
             }
         }
 
-        // Kule Seçme Menüsü (Sağ Alt)
-        Column(Modifier.align(Alignment.BottomEnd).padding(20.dp)) {
-            TowerButton("Okçu (100)", TowerType.OKCU, engine)
-            Spacer(Modifier.height(10.dp))
-            TowerButton("Buz (200)", TowerType.BUZ, engine)
+        // Kule Seçimi (Bottom)
+        Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 30.dp).background(Color.Black.copy(0.7f), androidx.compose.foundation.shape.RoundedCornerShape(30.dp)).padding(10.dp)) {
+            TowerSlot("PLASMA", TowerType.PLASMA, selected == TowerType.PLASMA) { onSelect(TowerType.PLASMA) }
+            TowerSlot("HELLFIRE", TowerType.HELLFIRE, selected == TowerType.HELLFIRE) { onSelect(TowerType.HELLFIRE) }
         }
     }
-
-    if (engine.health <= 0) {
+    
+    if(engine.health <= 0) {
         Box(Modifier.fillMaxSize().background(Color.Black.copy(0.9f)), contentAlignment = Alignment.Center) {
-            Text("OBA YAĞMALANDI", color = Color.Red, fontSize = 40.sp, fontWeight = FontWeight.Black)
+            Text("SİSTEM ÇÖKTÜ", color = Color.Red, fontSize = 40.sp, fontWeight = FontWeight.Black)
         }
     }
 }
 
 @Composable
-fun TowerButton(name: String, type: TowerType, engine: KingShotEngine) {
-    val isSelected = engine.selectedTowerType == type
-    Box(
-        Modifier
-            .size(100.dp, 50.dp)
-            .background(if (isSelected) Color.White else Color.Black.copy(0.5f), shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-            .padding(4.dp)
-            .pointerInput(type) { detectTapGestures { engine.selectedTowerType = type } },
-        contentAlignment = Alignment.Center
-    ) {
-        Text(name, color = if (isSelected) Color.Black else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+fun TowerSlot(name: String, type: TowerType, isSelected: Boolean, onClick: () -> Unit) {
+    Column(Modifier.padding(horizontal = 10.dp).pointerInput(Unit) { detectTapGestures { onClick() } }, horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(70.dp).background(if(isSelected) type.color else Color.Gray.copy(0.2f), androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
+            Text(name.take(1), color = Color.White, fontWeight = FontWeight.Bold)
+        }
+        Text("${type.cost}", color = Color.White, fontSize = 12.sp)
     }
 }
 
 @Composable
-fun StatChip(text: String, color: Color) {
-    Box(Modifier.background(Color.Black.copy(0.6f), androidx.compose.foundation.shape.RoundedCornerShape(20.dp)).padding(horizontal = 12.dp, vertical = 6.dp)) {
-        Text(text, color = color, fontWeight = FontWeight.Bold)
-    }
+fun StatView(label: String, color: Color) {
+    Text(label, color = color, fontSize = 22.sp, fontWeight = FontWeight.Bold)
 }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { KingShotGame() }
+        setContent { AAAGame() }
     }
 }
