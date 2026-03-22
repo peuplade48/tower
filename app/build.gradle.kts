@@ -16,10 +16,8 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
-        // Kotlin DSL için en güvenli ve standart yazım şekli (Hata düzeltildi)
-        vectorDrawables {
-            useSupportLibrary = true
-        }
+        // Kotlin DSL için en sorunsuz tek satırlık yazım
+        vectorDrawables.useSupportLibrary = true
     }
 
     buildTypes {
@@ -46,8 +44,8 @@ android {
     }
     
     composeOptions {
-        // Kotlin 1.9.x sürümleriyle uyumlu compiler extension sürümü
-        kotlinCompilerExtensionVersion = "1.5.8"
+        // Kotlin 1.9.22 ile tam uyumlu compiler extension sürümü
+        kotlinCompilerExtensionVersion = "1.5.10"
     }
     
     packaging {
@@ -58,18 +56,14 @@ android {
 }
 
 dependencies {
-    // Temel Android ve Lifecycle kütüphaneleri
+    // Temel kütüphaneler
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.2")
     
-    // Jetpack Compose BOM (Bill of Materials) - Sürüm 2024.02.00 olarak sabitlendi
-    val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
-    implementation(composeBom)
-    
-    // Compose UI kütüphaneleri
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
+    // GitHub Cache hatasını bypass etmek için BOM yerine doğrudan versiyonlu kütüphaneler
+    implementation("androidx.compose.ui:ui:1.6.2")
+    implementation("androidx.compose.ui:ui-graphics:1.6.2")
+    implementation("androidx.compose.ui:ui-tooling-preview:1.6.2")
+    implementation("androidx.compose.material3:material3:1.2.0")
 }
