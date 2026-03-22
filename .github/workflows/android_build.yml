@@ -3,6 +3,8 @@ name: Android Release Build
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
   build:
@@ -11,35 +13,36 @@ jobs:
       contents: write
 
     steps:
-    - name: Checkout Repository
+    - name: Repoyu Klonla
       uses: actions/checkout@v4
 
-    - name: Set up JDK 17
+    - name: JDK 17 Kurulumu
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: gradle
+        # GitHub cache servisi hata verdiği durumlarda derlemeyi durdurmaması için boş bırakıldı
+        cache: '' 
 
-    - name: Setup Gradle
+    - name: Gradle Kurulumu
       uses: gradle/actions/setup-gradle@v3
       with:
+        # Proje seviyesindeki Gradle sürümüyle uyumlu
         gradle-version: 8.5
 
-    # Proje dizininde gradlew dosyasının olduğundan ve çalışabilir olduğundan emin oluyoruz
-    - name: Prepare Gradle Wrapper
+    - name: Gradle Wrapper İzinlerini Ayarla
       run: |
-        if [ ! -f gradlew ]; then 
-          gradle wrapper 
+        if [ ! -f gradlew ]; then
+          gradle wrapper
         fi
         chmod +x gradlew
 
-    - name: Build Debug APK
-      run: ./gradlew assembleDebug --stacktrace
+    - name: Debug APK Derle
+      # --no-daemon ve --no-build-cache kullanarak temiz bir derleme sağlıyoruz
+      run: ./gradlew assembleDebug --stacktrace --no-daemon --no-build-cache
 
-    # Derleme başarılı olursa otomatik olarak yeni bir GitHub Release oluşturur
-    - name: Create GitHub Release
-      if: success() && github.ref == 'refs/heads/main'
+    - name: GitHub Release Oluştur
+      if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: v${{ github.run_number }}
