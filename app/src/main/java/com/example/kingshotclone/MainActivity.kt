@@ -376,6 +376,69 @@ fun DrawScope.glow(color: Color, r: Float, c: Offset, intensity: Float = 1f) {
     drawCircle(color.copy((0.32f  * intensity).coerceAtMost(1f)), r * 1.12f, c)
 }
 
+fun ngon(x: Float, y: Float, r: Float, n: Int, offsetDeg: Float = 0f): Path {
+    val path = Path()
+    val offset = offsetDeg * PI.toFloat() / 180f
+    for (i in 0 until n) {
+        val a = offset + i * 2f * PI.toFloat() / n
+        val px = x + cos(a) * r
+        val py = y + sin(a) * r
+        if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+    }
+    path.close()
+    return path
+}
+
+fun star(x: Float, y: Float, rOuter: Float, rInner: Float, points: Int): Path {
+    val path = Path()
+    val step = PI.toFloat() / points
+    for (i in 0 until points * 2) {
+        val r = if (i % 2 == 0) rOuter else rInner
+        val a = i * step
+        val px = x + cos(a) * r
+        val py = y + sin(a) * r
+        if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+    }
+    path.close()
+    return path
+}
+
+fun ghostOutline(cx: Float, cy: Float, s: Float, wave: Float): Path {
+    val path = Path()
+    val w = 24f * s
+    val h = 36f * s
+    path.moveTo(cx - w, cy + h)
+    path.cubicTo(cx - w, cy - h * 1.2f, cx + w, cy - h * 1.2f, cx + w, cy + h)
+    val steps = 5
+    val stepW = (w * 2) / steps
+    for (i in 1..steps) {
+        val px = cx + w - i * stepW
+        val py = cy + h + sin(wave + i) * 6f * s
+        path.lineTo(px, py)
+    }
+    path.close()
+    return path
+}
+
+fun dartShape(cx: Float, cy: Float, s: Float): Path {
+    val path = Path()
+    path.moveTo(cx, cy - 40f * s)
+    path.lineTo(cx + 20f * s, cy + 30f * s)
+    path.lineTo(cx, cy + 15f * s)
+    path.lineTo(cx - 20f * s, cy + 30f * s)
+    path.close()
+    return path
+}
+
+fun eyePath(cx: Float, cy: Float, w: Float, h: Float): Path {
+    val path = Path()
+    path.moveTo(cx - w, cy)
+    path.quadraticTo(cx, cy - h * 1.5f, cx + w, cy)
+    path.quadraticTo(cx, cy + h * 1.5f, cx - w, cy)
+    path.close()
+    return path
+}
+
 // ═══════════════════════════════════════════════
 //  DRAWING FUNCTIONS (DrawScope extensions)
 // ═══════════════════════════════════════════════
@@ -750,314 +813,6 @@ fun DrawScope.drawParticle(p: Particle) {
                 Offset(p.x + p.vx/spd * len * 0.62f, p.y + p.vy/spd * len * 0.62f),
                 (p.size * a * 0.5f).coerceAtLeast(1f), cap = StrokeCap.Round)
             drawCircle(Color.White.copy(a * 0.65f), p.size * 0.26f * a, Offset(p.x, p.y))
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════
-//  COMPOSABLES
-// ═══════════════════════════════════════════════
-
-
-@Composable
-fun GameScreen() {
-
-            // ── SPECTER: fast diamond with motion streak ──
-            EnemyType.SPECTER -> {
-                val spin = t * 120f
-                // motion blur streaks above
-                drawLine(c.copy(0.15f), Offset(0f, -20f * s), Offset(0f, -80f * s), 18f * s, cap = StrokeCap.Round)
-                drawLine(c.copy(0.08f), Offset(-8f * s, -15f * s), Offset(-8f * s, -60f * s), 8f * s, cap = StrokeCap.Round)
-                drawLine(c.copy(0.08f), Offset(8f * s, -15f * s), Offset(8f * s, -60f * s), 8f * s, cap = StrokeCap.Round)
-                // outer glow
-                drawCircle(Brush.radialGradient(listOf(c.copy(0.22f), Color.Transparent)), 56f * s, Offset.Zero)
-                // spinning outer diamond
-                withTransform({ rotate(spin, Offset.Zero) }) {
-                    drawPath(ngon(0f, 0f, 42f * s, 4, 0f), c.copy(0.3f), style = Stroke(3f))
-                }
-                // solid inner diamond (counter-spin)
-                withTransform({ rotate(-spin * 0.5f + 45f, Offset.Zero) }) {
-                    drawPath(ngon(0f, 0f, 28f * s, 4, 0f), c)
-                    drawPath(ngon(0f, 0f, 16f * s, 4, 0f), Color(0xFF020210))
-                }
-                drawCircle(c, 5f * s * (0.8f + sin(t * 12f) * 0.2f))
-                drawCircle(Color.White.copy(0.95f), 2.5f * s)
-            }
-
-            // ── IRON GOLEM: armored hexagon with plating ──
-            EnemyType.IRON_GOLEM -> {
-                val spin = t * 18f
-                // outer aura
-                drawCircle(Brush.radialGradient(listOf(c.copy(0.12f), Color.Transparent)), 115f * s, Offset.Zero)
-                // outer armor ring
-                withTransform({ rotate(spin, Offset.Zero) }) {
-                    drawPath(ngon(0f, 0f, 88f * s, 6), Color(0xFF1A2228))
-                    drawPath(ngon(0f, 0f, 88f * s, 6), c.copy(0.5f), style = Stroke(10f))
-                    // armor bolt slots
-                    repeat(6) { i ->
-                        val ba = i * PI.toFloat() / 3f + spin * PI.toFloat() / 180f
-                        val bx = cos(ba) * 76f * s; val by = sin(ba) * 76f * s
-                        drawCircle(c.copy(0.7f), 6f * s, Offset(bx, by))
-                        drawCircle(Color(0xFF0A0A1A), 3f * s, Offset(bx, by))
-                    }
-                }
-                // inner body
-                drawPath(ngon(0f, 0f, 58f * s, 6), Color(0xFF0E1820))
-                drawPath(ngon(0f, 0f, 58f * s, 6), c.copy(if (flash) 0.9f else 0.65f), style = Stroke(8f))
-                // chest plate detail
-                drawPath(ngon(0f, 0f, 34f * s, 6, 30f), Color(0xFF151E26))
-                drawPath(ngon(0f, 0f, 34f * s, 6, 30f), c.copy(0.3f), style = Stroke(3f))
-                // reactor core
-                drawCircle(c, 15f * s * (0.9f + sin(t * 6f) * 0.1f))
-                drawCircle(Color.White.copy(0.6f), 6f * s)
-            }
-
-            // ── DRAGON BORN: massive boss with orbiting satellites ──
-            EnemyType.DRAGON_BORN -> {
-                val spin = t * 22f
-                // massive outer glow
-                drawCircle(Brush.radialGradient(listOf(c.copy(0.08f), c.copy(0.04f), Color.Transparent)), 220f * s, Offset.Zero)
-                // three orbiting satellite orbs
-                repeat(3) { i ->
-                    val oa = spin * PI.toFloat() / 180f + i * 2f * PI.toFloat() / 3f
-                    val ox = cos(oa) * 140f * s; val oy = sin(oa) * 140f * s
-                    drawCircle(c.copy(0.35f), 20f * s, Offset(ox, oy))
-                    drawCircle(c.copy(0.7f), 14f * s, Offset(ox, oy))
-                    drawCircle(Color.White.copy(0.5f), 5f * s, Offset(ox, oy))
-                    drawLine(c.copy(0.15f), Offset.Zero, Offset(ox, oy), 2f)
-                }
-                // outer star ring
-                withTransform({ rotate(spin * 0.6f, Offset.Zero) }) {
-                    drawPath(star(0f, 0f, 115f * s, 70f * s, 8), c.copy(0.18f), style = Stroke(4f))
-                }
-                withTransform({ rotate(-spin * 0.4f, Offset.Zero) }) {
-                    drawPath(ngon(0f, 0f, 100f * s, 8), c.copy(0.25f), style = Stroke(5f))
-                }
-                // heavy body
-                drawCircle(Color(0xFF0A0A05), 78f * s)
-                drawCircle(c.copy(if (flash) 0.9f else 0.72f), 78f * s, style = Stroke(12f))
-                // inner details
-                withTransform({ rotate(-spin * 1.5f, Offset.Zero) }) {
-                    drawPath(star(0f, 0f, 52f * s, 32f * s, 6), c.copy(0.22f))
-                }
-                drawCircle(c, 32f * s * (0.88f + sin(t * 5f) * 0.12f))
-                drawCircle(Color(0xFF020210), 18f * s)
-                val eyePulse = 9f * s * (0.8f + sin(t * 9f) * 0.2f)
-                drawCircle(Color.White, eyePulse)
-                drawCircle(c, eyePulse * 0.55f)
-            }
-        }
-
-        // Freeze overlay
-        if (e.frozen > 0) {
-            withTransform({ rotate(t * 60f, Offset.Zero) }) {
-                drawPath(ngon(0f, 0f, 60f * s, 6), Color(0x4440C4FF), style = Stroke(4f))
-            }
-            drawCircle(Color(0x2240C4FF), 50f * s)
-        }
-
-        // HP bar — floating above enemy
-        val bw = 90f * s.coerceAtMost(2f); val bh = 8f
-        val barY = -(e.type.scale * 120f + 14f)
-        // bar shadow
-        drawRoundRect(Color.Black.copy(0.8f), Offset(-bw / 2f - 1f, barY - 1f), Size(bw + 2f, bh + 2f), CornerRadius(5f))
-        // bar track
-        drawRoundRect(Color(0xFF0A0A15), Offset(-bw / 2f, barY), Size(bw, bh), CornerRadius(4f))
-        // bar fill — color shifts red→yellow→green based on HP
-        if (hpR > 0f) {
-            val barColor = when {
-                hpR > 0.6f -> Color(0xFF00E676)
-                hpR > 0.3f -> Color(0xFFFFD740)
-                else        -> Color(0xFFFF1744)
-            }
-            drawRoundRect(barColor, Offset(-bw / 2f, barY), Size(bw * hpR, bh), CornerRadius(4f))
-            // bar shine
-            drawRoundRect(Color.White.copy(0.2f), Offset(-bw / 2f, barY), Size(bw * hpR, bh / 2f), CornerRadius(4f))
-        }
-    }
-}
-
-fun DrawScope.drawTower(t: Tower, time: Float) {
-    withTransform({ translate(t.x, t.y) }) {
-        val pulse = 1f + sin(time * 5f) * 0.06f
-        val lc = when (t.level) { 2 -> Color(0xFFFFD740); 3 -> Color(0xFFFF6D00); else -> t.type.color }
-
-        // Foundation platform — hexagonal base
-        drawPath(ngon(0f, 0f, 58f, 6, 0f), Color(0xFF0D0D20))
-        drawPath(ngon(0f, 0f, 58f, 6, 0f), lc.copy(0.45f * pulse), style = Stroke(3f + t.level * 1.5f))
-
-        // Platform inner detail
-        drawPath(ngon(0f, 0f, 44f, 6, 30f), Color(0xFF141428))
-        drawPath(ngon(0f, 0f, 44f, 6, 30f), t.type.color.copy(0.25f), style = Stroke(2f))
-
-        // Level indicators — glowing corner diamonds
-        for (i in 0 until t.level) {
-            val la = (i.toFloat() / 3f) * 2f * PI.toFloat() - PI.toFloat() / 2f
-            val lx = cos(la) * 50f; val ly = sin(la) * 50f
-            withTransform({ translate(lx, ly); rotate(45f, Offset.Zero) }) {
-                drawRect(lc, Offset(-5f, -5f), Size(10f, 10f))
-                drawRect(lc.copy(0.4f), Offset(-5f, -5f), Size(10f, 10f), style = Stroke(1.5f))
-            }
-        }
-
-        // Range ring (faint) — always visible
-        drawCircle(t.type.color.copy(0.04f), t.type.range)
-        drawCircle(t.type.color.copy(0.07f), t.type.range, style = Stroke(1f))
-
-        // Rotating barrel / weapon
-        withTransform({ rotate(t.angle, Offset.Zero) }) {
-            when (t.type) {
-
-                // TESLA: twin coil prongs
-                TowerType.TESLA -> {
-                    val recoil = t.animState * 14f
-                    // barrel shaft
-                    drawRect(Color(0xFF0A1520), Offset(-8f, -78f - recoil), Size(16f, 80f))
-                    drawRect(t.type.color.copy(0.7f), Offset(-8f, -78f - recoil), Size(16f, 80f), style = Stroke(1.5f))
-                    // left prong
-                    drawLine(t.type.color.copy(0.8f), Offset(-12f, -68f - recoil), Offset(-20f, -94f - recoil), 3f, cap = StrokeCap.Round)
-                    // right prong
-                    drawLine(t.type.color.copy(0.8f), Offset(12f, -68f - recoil), Offset(20f, -94f - recoil), 3f, cap = StrokeCap.Round)
-                    // energy ball at tip
-                    drawCircle(t.type.color, 8f * pulse, Offset(0f, -82f - recoil))
-                    drawCircle(Color.White.copy(0.9f), 4f + t.animState * 4f, Offset(0f, -84f - recoil))
-                    if (t.animState > 0.3f) {
-                        // lightning arcs on fire
-                        repeat(4) { i ->
-                            val la = i * PI.toFloat() / 2f
-                            drawLine(t.type.color.copy(t.animState * 0.7f),
-                                Offset(0f, -84f - recoil),
-                                Offset(cos(la) * 18f * t.animState, -84f - recoil + sin(la) * 18f * t.animState),
-                                1.5f, cap = StrokeCap.Round)
-                        }
-                    }
-                }
-
-                // NOVA: wide plasma cannon
-                TowerType.NOVA -> {
-                    val recoil = t.animState * 20f
-                    // wide hull
-                    drawRect(Color(0xFF1A0507), Offset(-14f, -72f - recoil), Size(28f, 76f))
-                    drawRect(t.type.color.copy(0.65f), Offset(-14f, -72f - recoil), Size(28f, 76f), style = Stroke(2.5f))
-                    // side fins
-                    drawRect(Color(0xFF260808), Offset(-22f, -58f - recoil), Size(8f, 40f))
-                    drawRect(Color(0xFF260808), Offset(14f, -58f - recoil), Size(8f, 40f))
-                    drawRect(t.type.color.copy(0.4f), Offset(-22f, -58f - recoil), Size(8f, 40f), style = Stroke(1.5f))
-                    drawRect(t.type.color.copy(0.4f), Offset(14f, -58f - recoil), Size(8f, 40f), style = Stroke(1.5f))
-                    // plasma chamber window
-                    drawCircle(t.type.color.copy(0.35f), 11f, Offset(0f, -48f - recoil))
-                    drawCircle(t.type.color, 7f * (0.85f + t.animState * 0.15f), Offset(0f, -48f - recoil))
-                    // muzzle glow
-                    drawCircle(t.type.color.copy(0.5f + t.animState * 0.5f), 14f, Offset(0f, -72f - recoil))
-                    drawCircle(Color.White.copy(0.8f * (0.2f + t.animState * 0.8f)), 6f + t.animState * 8f, Offset(0f, -74f - recoil))
-                }
-
-                // CANNON: heavy artillery
-                TowerType.CANNON -> {
-                    val recoil = t.animState * 22f
-                    // thick barrel with reinforcement rings
-                    drawRect(Color(0xFF120A00), Offset(-12f, -90f - recoil), Size(24f, 95f))
-                    drawRect(t.type.color.copy(0.55f), Offset(-12f, -90f - recoil), Size(24f, 95f), style = Stroke(2f))
-                    // reinforcement bands
-                    repeat(4) { i ->
-                        val ry = -22f - i * 18f - recoil
-                        drawRect(t.type.color.copy(0.45f), Offset(-15f, ry), Size(30f, 7f))
-                    }
-                    // breach block at base
-                    drawRect(Color(0xFF1E1000), Offset(-18f, -16f - recoil), Size(36f, 22f))
-                    drawRect(t.type.color.copy(0.5f), Offset(-18f, -16f - recoil), Size(36f, 22f), style = Stroke(2f))
-                    // muzzle flash
-                    if (t.animState > 0.4f) {
-                        drawCircle(t.type.color.copy(t.animState * 0.6f), 20f * t.animState, Offset(0f, -92f - recoil))
-                        drawCircle(Color.White.copy(t.animState * 0.8f), 8f * t.animState, Offset(0f, -94f - recoil))
-                    }
-                }
-
-                // FREEZE: cryo spire with snowflake arms
-                TowerType.FREEZE -> {
-                    val recoil = t.animState * 10f
-                    // central spire
-                    drawLine(Color(0xFF040D18), Offset(-6f, -86f - recoil), Offset(-6f, 0f), 1f)
-                    drawRect(Color(0xFF040D18), Offset(-7f, -82f - recoil), Size(14f, 84f))
-                    drawRect(t.type.color.copy(0.6f), Offset(-7f, -82f - recoil), Size(14f, 84f), style = Stroke(1.5f))
-                    // snowflake arms at various heights
-                    listOf(-68f, -44f, -20f).forEach { h ->
-                        val arm = 18f - recoil * 0.3f
-                        drawLine(t.type.color.copy(0.65f), Offset(-arm, h - recoil), Offset(arm, h - recoil), 2f)
-                        drawLine(t.type.color.copy(0.65f), Offset(-arm * 0.7f, h - recoil - arm * 0.7f), Offset(arm * 0.7f, h - recoil + arm * 0.7f), 2f)
-                    }
-                    // cryo crystal tip
-                    drawPath(ngon(0f, -84f - recoil, 10f, 6, 0f), t.type.color.copy(0.85f))
-                    drawCircle(Color.White.copy(0.8f + t.animState * 0.2f), 5f + t.animState * 3f, Offset(0f, -84f - recoil))
-                }
-            }
-        }
-    }
-}
-
-fun DrawScope.drawProjectile(p: Projectile) {
-    val center = Offset(p.x, p.y)
-    // tail glow
-    p.trail.forEachIndexed { i, o ->
-        val a = (1f - i.toFloat() / p.trail.size)
-        val r = when (p.source) {
-            TowerType.CANNON -> 9f - i * 0.8f
-            TowerType.NOVA   -> 11f - i * 0.9f
-            else             -> 7f - i * 0.6f
-        }
-        drawCircle(p.color.copy(a * 0.5f), r.coerceAtLeast(1f), o)
-    }
-
-    when (p.source) {
-        TowerType.TESLA -> {
-            // small bright electric orb
-            drawCircle(p.color.copy(0.4f), 20f, center)
-            drawCircle(p.color, 7f, center)
-            drawCircle(Color.White.copy(0.95f), 3f, center)
-        }
-        TowerType.NOVA -> {
-            // large plasma orb with ring
-            drawCircle(Brush.radialGradient(listOf(p.color.copy(0.35f), Color.Transparent), center, 60f), 60f, center)
-            drawCircle(p.color.copy(0.8f), 12f, center)
-            drawCircle(p.color.copy(0.4f), 24f, center, style = Stroke(3f))
-            drawCircle(Color.White.copy(0.9f), 5f, center)
-        }
-        TowerType.CANNON -> {
-            // solid dark shell
-            drawCircle(Color(0xFF1A0F00), 11f, center)
-            drawCircle(p.color, 9f, center)
-            drawCircle(Color.White.copy(0.6f), 3f, center)
-        }
-        TowerType.FREEZE -> {
-            // ice shard — hexagon
-            drawPath(ngon(p.x, p.y, 14f, 6, 0f), p.color.copy(0.75f))
-            drawPath(ngon(p.x, p.y, 14f, 6, 0f), Color.White.copy(0.5f), style = Stroke(2f))
-            drawCircle(Color.White.copy(0.9f), 4f, center)
-        }
-    }
-}
-
-fun DrawScope.drawParticle(p: Particle) {
-    val a = p.life.coerceIn(0f, 1f)
-    when (p.type) {
-        ParticleType.SMOKE -> {
-            drawCircle(p.color.copy(a * 0.18f), p.size * (1.8f - a * 0.6f), Offset(p.x, p.y))
-        }
-        ParticleType.RING -> {
-            drawCircle(p.color.copy(a * 0.8f), p.size, Offset(p.x, p.y), style = Stroke(2f))
-        }
-        ParticleType.SPARK -> {
-            // elongated streak
-            val len = p.size * a * 1.8f
-            val speed = sqrt(p.vx * p.vx + p.vy * p.vy).coerceAtLeast(0.01f)
-            drawLine(
-                p.color.copy(a * 0.85f),
-                Offset(p.x - p.vx / speed * len * 0.5f, p.y - p.vy / speed * len * 0.5f),
-                Offset(p.x + p.vx / speed * len * 0.5f, p.y + p.vy / speed * len * 0.5f),
-                (p.size * a * 0.55f).coerceAtLeast(1f),
-                cap = StrokeCap.Round
-            )
-            drawCircle(Color.White.copy(a * 0.7f), p.size * 0.28f * a, Offset(p.x, p.y))
         }
     }
 }
