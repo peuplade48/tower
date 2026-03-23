@@ -433,8 +433,8 @@ fun dartShape(cx: Float, cy: Float, s: Float): Path {
 fun eyePath(cx: Float, cy: Float, w: Float, h: Float): Path {
     val path = Path()
     path.moveTo(cx - w, cy)
-    path.quadraticTo(cx, cy - h * 1.5f, cx + w, cy)
-    path.quadraticTo(cx, cy + h * 1.5f, cx - w, cy)
+    path.quadraticBezierTo(cx, cy - h * 1.5f, cx + w, cy)
+    path.quadraticBezierTo(cx, cy + h * 1.5f, cx - w, cy)
     path.close()
     return path
 }
