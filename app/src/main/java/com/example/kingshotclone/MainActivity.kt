@@ -1,3 +1,4 @@
+
 package com.example.kingshotclone
 
 import android.os.Bundle
@@ -235,8 +236,9 @@ class GameEngine {
         val now = System.currentTimeMillis()
         towers.forEach { t ->
             val r = t.type.range * (1f + (t.level - 1) * 0.2f)
+            val rSq = r * r
             val tgt = enemies
-                .filter { dist(it.x, it.y, t.x, t.y) <= r }
+                .filter { distSq(it.x, it.y, t.x, t.y) <= rSq }
                 .maxByOrNull { it.progress } ?: return@forEach
 
             t.angle = atan2(tgt.y - t.y, tgt.x - t.x) * 180f / PI.toFloat() + 90f
@@ -265,7 +267,7 @@ class GameEngine {
             if (d < 50f) {
                 when (p.source) {
                     TowerType.NOVA -> {
-                        enemies.filter { dist(it.x, it.y, p.x, p.y) < 220f }
+                        enemies.filter { distSq(it.x, it.y, p.x, p.y) < 220f * 220f }
                             .forEach { e -> e.hp -= p.dmg; e.hitFlash = 1f }
                         boom(p.x, p.y, p.color, 60)
                         ring(p.x, p.y, p.color)
@@ -295,6 +297,12 @@ class GameEngine {
 
     private fun dist(x1: Float, y1: Float, x2: Float, y2: Float) =
         sqrt((x1 - x2).pow(2) + (y1 - y2).pow(2))
+
+    private fun distSq(x1: Float, y1: Float, x2: Float, y2: Float): Float {
+        val dx = x1 - x2
+        val dy = y1 - y2
+        return dx * dx + dy * dy
+    }
 
     private fun boom(x: Float, y: Float, c: Color, n: Int) {
         repeat(n) {
@@ -327,9 +335,9 @@ class GameEngine {
             val tc = ((x - ax) * dx + (y - ay) * dy2) / lenSq
             val cx = ax + tc.coerceIn(0f, 1f) * dx
             val cy = ay + tc.coerceIn(0f, 1f) * dy2
-            if (dist(x, y, cx, cy) < 92f) return false
+            if (distSq(x, y, cx, cy) < 92f * 92f) return false
         }
-        if (towers.any { dist(it.x, it.y, x, y) < 88f }) return false
+        if (towers.any { distSq(it.x, it.y, x, y) < 88f * 88f }) return false
         towers.add(Tower(x, y, type))
         gold -= type.cost
         boom(x, y, type.color, 30)
@@ -337,8 +345,8 @@ class GameEngine {
     }
 
     fun upgrade(x: Float, y: Float): Boolean {
-        val t = towers.minByOrNull { dist(it.x, it.y, x, y) } ?: return false
-        if (dist(t.x, t.y, x, y) > 80f || t.level >= 3) return false
+        val t = towers.minByOrNull { distSq(it.x, it.y, x, y) } ?: return false
+        if (distSq(t.x, t.y, x, y) > 80f * 80f || t.level >= 3) return false
         val cost = t.type.cost
         if (gold < cost) return false
         val idx = towers.indexOf(t)
