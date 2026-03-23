@@ -357,28 +357,15 @@ class GameEngine {
 }
 
 // ═══════════════════════════════════════════════
-//  SHAPE HELPERS
+//  VISUAL HELPERS
 // ═══════════════════════════════════════════════
 
-fun ngon(cx: Float, cy: Float, r: Float, n: Int, rotDeg: Float = 0f): Path {
-    val p = Path()
-    for (i in 0 until n) {
-        val a = (i.toFloat() / n) * 2f * PI.toFloat() + rotDeg * PI.toFloat() / 180f
-        val x = cx + cos(a) * r; val y = cy + sin(a) * r
-        if (i == 0) p.moveTo(x, y) else p.lineTo(x, y)
-    }
-    p.close(); return p
-}
-
-fun star(cx: Float, cy: Float, r1: Float, r2: Float, pts: Int, rotDeg: Float = 0f): Path {
-    val p = Path()
-    for (i in 0 until pts * 2) {
-        val a = (i.toFloat() / (pts * 2)) * 2f * PI.toFloat() + rotDeg * PI.toFloat() / 180f
-        val r = if (i % 2 == 0) r1 else r2
-        val x = cx + cos(a) * r; val y = cy + sin(a) * r
-        if (i == 0) p.moveTo(x, y) else p.lineTo(x, y)
-    }
-    p.close(); return p
+// Simulated bloom: 4 concentric transparent halos
+fun DrawScope.glow(color: Color, r: Float, c: Offset, intensity: Float = 1f) {
+    drawCircle(color.copy((0.025f * intensity).coerceAtMost(1f)), r * 4.4f, c)
+    drawCircle(color.copy((0.06f  * intensity).coerceAtMost(1f)), r * 2.8f, c)
+    drawCircle(color.copy((0.15f  * intensity).coerceAtMost(1f)), r * 1.75f, c)
+    drawCircle(color.copy((0.32f  * intensity).coerceAtMost(1f)), r * 1.12f, c)
 }
 
 // ═══════════════════════════════════════════════
@@ -386,98 +373,386 @@ fun star(cx: Float, cy: Float, r1: Float, r2: Float, pts: Int, rotDeg: Float = 0
 // ═══════════════════════════════════════════════
 
 fun DrawScope.drawBackground(path: List<PNode>, t: Float) {
-    // Deep space base
-    drawRect(Brush.verticalGradient(listOf(Color(0xFF02020E), Color(0xFF05050F), Color(0xFF020210))))
+    drawRect(Brush.verticalGradient(listOf(Color(0xFF010109), Color(0xFF02020E), Color(0xFF010109))))
 
-    // Hex grid — cyberpunk floor
-    val hexR = 38f
-    val hexW = hexR * sqrt(3f)
-    val hexH = hexR * 2f
-    val cols2 = (size.width / hexW).toInt() + 3
-    val rows2 = (size.height / (hexH * 0.75f)).toInt() + 3
-    for (row in -1..rows2) {
-        for (col in -1..cols2) {
-            val xOff = if (row % 2 == 0) 0f else hexW / 2f
-            val cx = col * hexW + xOff
-            val cy = row * hexH * 0.75f
-            val hexPath = ngon(cx, cy, hexR * 0.92f, 6, 0f)
-            drawPath(hexPath, Color(0xFF0A0A20), style = Stroke(0.7f))
+    // Animated hex grid
+    val hr = 44f; val hw = hr * sqrt(3f); val hh = hr * 2f
+    val nc = (size.width / hw).toInt() + 3; val nr = (size.height / (hh * 0.75f)).toInt() + 3
+    for (row in -1..nr) {
+        for (col in -1..nc) {
+            val ox = if (row % 2 == 0) 0f else hw * 0.5f
+            val hcx = col * hw + ox; val hcy = row * hh * 0.75f
+            val bright = 0.38f + 0.62f * sin(col * 0.65f + row * 0.9f + t * 0.07f)
+            drawPath(ngon(hcx, hcy, hr * 0.9f, 6), Color(0xFF141430).copy(0.035f + bright * 0.028f), style = Stroke(0.8f))
         }
     }
 
     // Ambient corner glows
-    drawCircle(Brush.radialGradient(listOf(Color(0x1500E5FF), Color.Transparent)), 380f, Offset(0f, size.height * 0.3f))
-    drawCircle(Brush.radialGradient(listOf(Color(0x12FF1744), Color.Transparent)), 340f, Offset(size.width, size.height * 0.7f))
+    drawCircle(Brush.radialGradient(listOf(Color(0x1600E5FF), Color.Transparent)), 520f, Offset(-20f, size.height * 0.35f))
+    drawCircle(Brush.radialGradient(listOf(Color(0x12FF1744), Color.Transparent)), 480f, Offset(size.width + 20f, size.height * 0.65f))
+    drawCircle(Brush.radialGradient(listOf(Color(0x0AFF9800), Color.Transparent)), 440f, Offset(size.width * 0.5f, size.height + 40f))
 
     if (path.size < 2) return
 
-    // Path: dark asphalt lane with neon edge lines
+    // Road — multi-layer
     for (i in 0 until path.size - 1) {
-        val a = Offset(path[i].x, path[i].y)
-        val b = Offset(path[i + 1].x, path[i + 1].y)
-        // Wide dark road base
-        drawLine(Color(0xFF0C0C1A), a, b, 96f, cap = StrokeCap.Square)
-        // Road texture lines
-        drawLine(Color(0xFF111128), a, b, 80f, cap = StrokeCap.Square)
-        // Outer glow
-        drawLine(Color(0x22FF9800), a, b, 110f, cap = StrokeCap.Round)
-        // Neon edge strips
-        drawLine(Color(0xCCFF9800), a, b,   3f, cap = StrokeCap.Round)
-        // Center dashed line — draw as full line (dashes via particles not possible easily)
-        drawLine(Color(0x55FFD740), a, b,   1.5f, cap = StrokeCap.Round,
-            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(18f, 18f)))
+        val a = Offset(path[i].x, path[i].y); val b = Offset(path[i + 1].x, path[i + 1].y)
+        drawLine(Color(0x14FF9800), a, b, 200f, cap = StrokeCap.Round)   // wide halo
+        drawLine(Color(0xFF0C0C1E), a, b, 104f, cap = StrokeCap.Square)  // dark asphalt
+        drawLine(Color(0xFF0F0F22), a, b, 88f,  cap = StrokeCap.Square)  // lighter inner
+        drawLine(Color(0x22FF9800), a, b, 115f, cap = StrokeCap.Round)   // glow halo
+        drawLine(Color(0xDDFF9800), a, b, 2.5f, cap = StrokeCap.Round)   // bright edge
+        drawLine(Color(0x66FFD740), a, b, 1.5f, cap = StrokeCap.Round,
+            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(22f, 14f)))
     }
 
-    // Animated energy pulse traveling along path
-    repeat(7) { k ->
-        val pct = ((t * 0.32f + k.toFloat() / 7f) % 1f)
+    // Energy pulses travelling the path
+    for (k in 0 until 8) {
+        val pct = ((t * 0.38f + k.toFloat() / 8f) % 1f)
         val pos = pathPos(path, pct)
-        val gAlpha = (0.55f + 0.35f * sin(t * 3f + k * 1.3f)).coerceIn(0f, 1f)
-        drawCircle(
-            Brush.radialGradient(
-                listOf(Color(0xFFFFB300).copy(gAlpha * 0.9f), Color(0xFFFF6F00).copy(gAlpha * 0.3f), Color.Transparent),
-                Offset(pos.x, pos.y), 28f
-            ), 28f, Offset(pos.x, pos.y)
-        )
+        val pulse = 0.55f + 0.45f * sin(t * 5f + k * 1.4f)
+        glow(Color(0xFFFFB300), 9f, Offset(pos.x, pos.y), pulse)
+        drawCircle(Color(0xFFFFD740).copy(0.95f * pulse), 4f, Offset(pos.x, pos.y))
     }
 }
 
 fun DrawScope.drawEnemy(e: Enemy, t: Float) {
-    val s = e.type.scale
+    val s  = e.type.scale
     val bob = sin(t * 3.8f + e.id.toFloat()) * 5f
     val flash = e.hitFlash > 0.2f
-    val c = if (flash) Color.White else e.type.color
+    val ec = if (flash) Color.White else e.type.color
     val hpR = (e.hp.toFloat() / e.type.hp).coerceIn(0f, 1f)
+    val cx = e.x; val cy = e.y + bob
+    val frozen = e.frozen > 0f
 
-    withTransform({ translate(e.x, e.y + bob) }) {
+    // ── VOID WALKER: flowing ghost with glowing eye-slits & tendrils ──
+    if (e.type == EnemyType.VOID_WALKER) {
+        val wave = t * 2.8f
+        val body = ghostOutline(cx, cy, s, wave)
+        drawPath(ghostOutline(cx + 2f, cy + 4f, s, wave), Color.Black.copy(0.45f))  // shadow
+        glow(ec, 42f * s, Offset(cx, cy), 0.85f)
+        drawPath(body, e.type.color.copy(0.92f))
+        drawPath(ghostOutline(cx + 2f*s, cy + 6f*s, s * 0.78f, wave), Color(0xFF020210).copy(0.5f)) // dark inner
+        drawPath(ghostOutline(cx - 4f*s, cy - 6f*s, s * 0.52f, wave), Color.White.copy(0.11f))      // highlight
+        drawPath(body, ec.copy(0.62f), style = Stroke(1.5f))  // rim
+        // Horizontal slit eyes
+        val ey = cy - 8f * s; val ew = 15f * s; val eh = 5f * s
+        listOf(cx - 18f*s, cx + 18f*s).forEach { ex ->
+            drawOval(Color(0xFF010108),   Offset(ex - ew/2f, ey - eh/2f), Size(ew, eh))
+            drawOval(ec.copy(0.85f),      Offset(ex - ew*0.4f, ey - eh*0.38f), Size(ew*0.78f, eh*0.7f))
+            glow(ec, eh * 2f, Offset(ex, ey), 1.6f)
+        }
+        // Three animated tendrils
+        repeat(3) { i ->
+            val ta = wave + i * 2.1f
+            val tx = cos(ta) * 52f * s; val ty2 = sin(ta) * 12f * s + 40f * s
+            drawLine(ec.copy(0.32f + 0.14f * sin(t * 4f + i)), Offset(cx, cy + 20f*s), Offset(cx + tx, cy + ty2), 2f, cap = StrokeCap.Round)
+            drawCircle(ec.copy(0.5f), 4f * s, Offset(cx + tx, cy + ty2))
+        }
+    }
 
-        when (e.type) {
-            // ── VOID WALKER: ghost pentagon with tendrils ──
-            EnemyType.VOID_WALKER -> {
-                val rot = t * 45f
-                // outer halo glow
-                drawCircle(Brush.radialGradient(listOf(c.copy(0.18f), Color.Transparent)), 68f * s, Offset.Zero)
-                // spinning outer ring
-                withTransform({ rotate(rot, Offset.Zero) }) {
-                    drawPath(ngon(0f, 0f, 50f * s, 5), Color.Transparent)
-                    drawPath(ngon(0f, 0f, 50f * s, 5), c.copy(0.55f), style = Stroke(2.5f))
+    // ── SPECTER: sharp dart with speed-blur & spinning fins ──
+    if (e.type == EnemyType.SPECTER) {
+        val dart = dartShape(cx, cy, s)
+        // Speed blur streaks
+        for (i in 1..6) {
+            val a = (0.22f - i * 0.033f).coerceAtLeast(0f)
+            drawOval(e.type.color.copy(a), Offset(cx - 16f*s, cy - 50f*s - i*20f*s), Size(32f*s, 18f*s))
+        }
+        drawPath(dartShape(cx + 2f, cy + 4f, s), Color.Black.copy(0.4f))
+        glow(ec, 36f * s, Offset(cx, cy), 0.95f)
+        drawPath(dart, e.type.color)
+        drawPath(dartShape(cx, cy + 6f*s, s * 0.74f), Color.Black.copy(0.32f))            // underside
+        drawLine(Color.White.copy(0.42f), Offset(cx, cy - 50f*s), Offset(cx, cy + 4f*s), 3f*s, cap = StrokeCap.Round)
+        drawPath(dart, ec.copy(0.78f), style = Stroke(1.5f))
+        // Spinning cross fins
+        withTransform({ translate(cx, cy + 10f*s); rotate(t * 130f, Offset.Zero) }) {
+            drawLine(ec.copy(0.55f), Offset(-32f*s, 0f), Offset(32f*s, 0f), 2f, cap = StrokeCap.Round)
+            drawLine(ec.copy(0.3f),  Offset(-20f*s, 8f*s), Offset(20f*s, -8f*s), 1.5f, cap = StrokeCap.Round)
+        }
+        glow(ec, 7f*s, Offset(cx, cy - 14f*s), 1.8f)
+        drawCircle(ec, 5f*s, Offset(cx, cy - 14f*s))
+        drawCircle(Color.White.copy(0.95f), 2f*s, Offset(cx, cy - 14f*s))
+    }
+
+    // ── IRON GOLEM: armored hexagon with slow rotating defense ring ──
+    if (e.type == EnemyType.IRON_GOLEM) {
+        withTransform({ translate(cx, cy); rotate(t * 14f, Offset.Zero) }) {
+            drawPath(ngon(0f, 0f, 90f*s, 6), Color(0xFF0B1720))
+            drawPath(ngon(0f, 0f, 90f*s, 6), e.type.color.copy(0.44f), style = Stroke(10f))
+            repeat(6) { i ->
+                val ba = i * PI.toFloat() / 3f
+                val bx = cos(ba) * 80f*s; val by = sin(ba) * 80f*s
+                drawCircle(Color(0xFF0C1B26), 11f*s, Offset(bx, by))
+                drawCircle(e.type.color.copy(0.78f), 8f*s, Offset(bx, by))
+                drawCircle(Color.White.copy(0.32f), 3.5f*s, Offset(bx, by))
+            }
+        }
+        glow(e.type.color, 60f*s, Offset(cx, cy), 0.75f)
+        withTransform({ translate(cx, cy) }) {
+            drawPath(ngon(3f*s, 5f*s, 61f*s, 6), Color.Black.copy(0.45f)) // shadow
+            drawPath(ngon(0f, 0f, 62f*s, 6), Color(0xFF0D1820))
+            drawPath(ngon(0f, 0f, 60f*s, 6), ec.copy(0.65f))
+            drawPath(ngon(-4f*s, -6f*s, 54f*s, 6), Color.White.copy(0.055f)) // top highlight
+            withTransform({ rotate(t * 40f, Offset.Zero) }) {
+                drawPath(ngon(0f, 0f, 42f*s, 6, 30f), Color(0xFF111E28), style = Stroke(9f))
+                drawPath(ngon(0f, 0f, 42f*s, 6, 30f), e.type.color.copy(0.22f), style = Stroke(2f))
+            }
+            drawPath(ngon(0f, 5f*s, 27f*s, 6), Color(0xFF141E28))
+            drawPath(ngon(0f, 5f*s, 27f*s, 6), e.type.color.copy(0.3f), style = Stroke(2f))
+            glow(Color(0xFFFF1744), 14f*s, Offset.Zero, 1.35f)
+            drawCircle(Color(0xFF3A0000), 13f*s)
+            drawCircle(Color(0xFFFF1744), 10f*s)
+            drawCircle(Color(0xFFFF8080), 6f*s)
+            drawCircle(Color.White.copy(0.9f), 3.5f*s)
+            drawPath(ngon(0f, 0f, 60f*s, 6), ec.copy(0.45f), style = Stroke(2.5f)) // rim
+        }
+    }
+
+    // ── DRAGON BORN: boss with orbiting satellites, rotating rings & demon face ──
+    if (e.type == EnemyType.DRAGON_BORN) {
+        val spin = t * 20f
+        drawCircle(Brush.radialGradient(
+            listOf(e.type.color.copy(0.07f), e.type.color.copy(0.03f), Color.Transparent),
+            Offset(cx, cy), 255f*s), 255f*s, Offset(cx, cy))
+        repeat(4) { i ->
+            val oa = spin * PI.toFloat()/180f + i * PI.toFloat()/2f
+            val ox = cx + cos(oa)*148f*s; val oy = cy + sin(oa)*148f*s
+            glow(e.type.color, 17f*s, Offset(ox, oy))
+            drawCircle(Color(0xFF080700), 15f*s, Offset(ox, oy))
+            drawCircle(e.type.color.copy(0.85f), 12f*s, Offset(ox, oy))
+            drawCircle(Color.White.copy(0.65f), 4f*s, Offset(ox, oy))
+            drawLine(e.type.color.copy(0.1f), Offset(cx, cy), Offset(ox, oy), 1.5f)
+        }
+        withTransform({ translate(cx, cy); rotate(spin * 0.6f, Offset.Zero) }) {
+            drawPath(star(0f, 0f, 112f*s, 74f*s, 8), e.type.color.copy(0.12f), style = Stroke(3f))
+            drawPath(ngon(0f, 0f, 120f*s, 12), e.type.color.copy(0.07f), style = Stroke(2f))
+        }
+        withTransform({ translate(cx, cy); rotate(-spin * 0.45f, Offset.Zero) }) {
+            drawPath(ngon(0f, 0f, 96f*s, 8), e.type.color.copy(0.16f), style = Stroke(4f))
+        }
+        glow(e.type.color, 78f*s, Offset(cx, cy), 1.0f)
+        withTransform({ translate(cx, cy) }) {
+            drawCircle(Color.Black.copy(0.6f), 80f*s, Offset(4f*s, 5f*s))
+            drawCircle(Color(0xFF060500), 80f*s)
+            drawCircle(e.type.color.copy(0.82f), 80f*s, style = Stroke(12f))
+            drawCircle(e.type.color.copy(0.12f), 74f*s)
+            drawCircle(Color.White.copy(0.06f), 55f*s, Offset(-16f*s, -22f*s))
+            withTransform({ rotate(-spin * 1.6f, Offset.Zero) }) {
+                drawPath(star(0f, 0f, 50f*s, 30f*s, 6), e.type.color.copy(0.18f))
+            }
+            // Almond eyes
+            val ey = -12f*s; val esp = 23f*s
+            listOf(-esp, esp).forEach { ex ->
+                glow(Color(0xFFFF1744), 12f*s, Offset(ex, ey), 2.0f)
+                drawPath(eyePath(ex, ey, 14f*s, 8f*s),   Color(0xFF380000))
+                drawPath(eyePath(ex, ey, 11f*s, 6.5f*s), Color(0xFFFF1744))
+                drawPath(eyePath(ex, ey, 6f*s,  3.5f*s), Color(0xFFFF9090))
+                drawPath(eyePath(ex, ey, 2.5f*s, 1.5f*s),Color.White.copy(0.9f))
+            }
+            // Jagged mouth
+            val my = 20f*s
+            drawLine(e.type.color.copy(0.5f), Offset(-26f*s, my), Offset(26f*s, my), 2f*s)
+            repeat(5) { i ->
+                val tx = (-20f + i*10f)*s
+                drawLine(Color.White.copy(0.65f), Offset(tx, my), Offset(tx, my + 9f*s), 3f*s, cap = StrokeCap.Round)
+            }
+            drawCircle(ec.copy(0.5f), 80f*s, style = Stroke(2f))
+        }
+    }
+
+    // Freeze overlay
+    if (frozen) {
+        withTransform({ translate(cx, cy); rotate(t * 55f, Offset.Zero) }) {
+            drawPath(ngon(0f, 0f, 58f*s, 6), Color(0x4040C4FF), style = Stroke(4f))
+        }
+        drawCircle(Color(0x1E40C4FF), 52f*s, Offset(cx, cy))
+    }
+
+    // HP bar
+    val bw = (88f*s).coerceIn(70f, 165f)
+    val barY = e.y + bob - e.type.scale * 128f
+    val barX = e.x - bw/2f
+    drawRoundRect(Color.Black.copy(0.85f), Offset(barX - 1f, barY - 1f), Size(bw + 2f, 10f), CornerRadius(5f))
+    drawRoundRect(Color(0xFF080810), Offset(barX, barY), Size(bw, 8f), CornerRadius(4f))
+    if (hpR > 0f) {
+        val bc = when { hpR > 0.62f -> Color(0xFF00E676); hpR > 0.3f -> Color(0xFFFFD740); else -> Color(0xFFFF1744) }
+        drawRoundRect(bc, Offset(barX, barY), Size(bw * hpR, 8f), CornerRadius(4f))
+        drawRoundRect(Color.White.copy(0.22f), Offset(barX, barY), Size(bw * hpR, 4f), CornerRadius(4f))
+    }
+}
+
+fun DrawScope.drawTower(tower: Tower, time: Float) {
+    withTransform({ translate(tower.x, tower.y) }) {
+        val pulse = 1f + sin(time * 5.5f) * 0.055f
+        val lc = when (tower.level) { 2 -> Color(0xFFFFD740); 3 -> Color(0xFFFF6D00); else -> tower.type.color }
+
+        // Hexagonal base platform — shadow then body
+        drawPath(ngon(3f, 4f, 56f, 6), Color.Black.copy(0.5f))
+        drawPath(ngon(0f, 0f, 56f, 6), Color(0xFF0C0C1E))
+        drawPath(ngon(0f, 0f, 56f, 6), lc.copy(0.52f * pulse), style = Stroke(3.5f + tower.level * 1.5f))
+        drawPath(ngon(-3f, -4f, 50f, 6), Color.White.copy(0.055f)) // top-left highlight
+        drawPath(ngon(0f, 0f, 42f, 6, 30f), Color(0xFF10101E))
+        drawPath(ngon(0f, 0f, 42f, 6, 30f), tower.type.color.copy(0.2f), style = Stroke(2f))
+
+        // Level diamond pips
+        for (i in 0 until tower.level) {
+            val la = (i.toFloat() / 3f) * 2f * PI.toFloat() - PI.toFloat() / 2f
+            val lx = cos(la) * 50f; val ly = sin(la) * 50f
+            withTransform({ translate(lx, ly); rotate(45f, Offset.Zero) }) {
+                drawRect(Color.Black.copy(0.5f), Offset(-5f, -3f), Size(10f, 10f))
+                drawRect(lc, Offset(-5f, -5f), Size(10f, 10f))
+                drawRect(Color.White.copy(0.28f), Offset(-5f, -5f), Size(10f, 3f))
+            }
+        }
+
+        // Range circle (very faint)
+        drawCircle(tower.type.color.copy(0.025f), tower.type.range)
+        drawCircle(tower.type.color.copy(0.055f), tower.type.range, style = Stroke(1f))
+
+        withTransform({ rotate(tower.angle, Offset.Zero) }) {
+            val rc = tower.animState * 18f
+
+            // TESLA — twin-prong coil gun
+            if (tower.type == TowerType.TESLA) {
+                drawRect(Color(0xFF0A1528), Offset(-7f, -78f - rc), Size(14f, 80f))
+                drawRect(tower.type.color.copy(0.65f), Offset(-7f, -78f - rc), Size(14f, 80f), style = Stroke(1.5f))
+                // Coil rings
+                for (i in 0..3) {
+                    val ry = -26f - i * 14f - rc
+                    drawLine(tower.type.color.copy(0.35f), Offset(-10f, ry), Offset(10f, ry), 2f)
                 }
-                // body pentagon
-                drawPath(ngon(0f, 0f, 36f * s, 5, -rot * 0.4f), c.copy(0.85f))
-                // dark void center
-                drawPath(ngon(0f, 0f, 22f * s, 5, -rot * 0.4f), Color(0xFF020210))
-                // pulsing eye
-                val eyeR = 8f * s * (0.75f + sin(t * 8f) * 0.25f)
-                drawCircle(c, eyeR)
-                drawCircle(Color.White.copy(0.9f), eyeR * 0.4f)
-                // three rotating tendrils
-                repeat(3) { i ->
-                    val ta = rot * PI.toFloat() / 180f + i * 2f * PI.toFloat() / 3f
-                    val tx = cos(ta) * 54f * s; val ty = sin(ta) * 54f * s
-                    drawLine(c.copy(0.4f), Offset(0f, 0f), Offset(tx, ty), 2f, cap = StrokeCap.Round)
-                    drawCircle(c.copy(0.6f), 5f * s, Offset(tx, ty))
+                // Prongs
+                drawLine(tower.type.color.copy(0.85f), Offset(-9f, -64f - rc), Offset(-17f, -90f - rc), 2.5f, cap = StrokeCap.Round)
+                drawLine(tower.type.color.copy(0.85f), Offset( 9f, -64f - rc), Offset( 17f, -90f - rc), 2.5f, cap = StrokeCap.Round)
+                glow(tower.type.color, 7f * pulse, Offset(0f, -79f - rc), 1.2f)
+                drawCircle(tower.type.color, 6f * pulse, Offset(0f, -79f - rc))
+                drawCircle(Color.White.copy(0.9f), 3f + tower.animState * 4f, Offset(0f, -81f - rc))
+                if (tower.animState > 0.25f) {
+                    repeat(5) { i ->
+                        val la = i * PI.toFloat() * 0.4f; val lr = 20f * tower.animState
+                        drawLine(tower.type.color.copy(tower.animState * 0.8f),
+                            Offset(0f, -81f - rc),
+                            Offset(cos(la)*lr, -81f - rc + sin(la)*lr),
+                            1.5f, cap = StrokeCap.Round)
+                    }
                 }
             }
+
+            // NOVA — wide plasma cannon with side fins
+            if (tower.type == TowerType.NOVA) {
+                drawRect(Color(0xFF200810), Offset(-26f, -58f - rc), Size(10f, 48f))
+                drawRect(Color(0xFF200810), Offset( 16f, -58f - rc), Size(10f, 48f))
+                drawRect(tower.type.color.copy(0.4f), Offset(-26f, -58f - rc), Size(10f, 48f), style = Stroke(1.5f))
+                drawRect(tower.type.color.copy(0.4f), Offset( 16f, -58f - rc), Size(10f, 48f), style = Stroke(1.5f))
+                drawRect(Color(0xFF180508), Offset(-13f, -76f - rc), Size(26f, 78f))
+                drawRect(tower.type.color.copy(0.7f), Offset(-13f, -76f - rc), Size(26f, 78f), style = Stroke(2.5f))
+                drawCircle(tower.type.color.copy(0.3f), 10f, Offset(0f, -46f - rc))
+                drawCircle(tower.type.color,  7f * (0.8f + tower.animState * 0.2f), Offset(0f, -46f - rc))
+                drawCircle(Color.White.copy(0.5f), 3f, Offset(0f, -46f - rc))
+                glow(tower.type.color, 10f + tower.animState * 14f, Offset(0f, -76f - rc), 0.9f + tower.animState * 0.7f)
+                drawCircle(Color.White.copy(0.7f * (0.1f + tower.animState)), 5f + tower.animState * 10f, Offset(0f, -78f - rc))
+            }
+
+            // CANNON — heavy multi-band barrel
+            if (tower.type == TowerType.CANNON) {
+                drawRect(Color(0xFF120A00), Offset(-13f, -92f - rc), Size(26f, 95f))
+                drawRect(tower.type.color.copy(0.55f), Offset(-13f, -92f - rc), Size(26f, 95f), style = Stroke(2f))
+                repeat(5) { i ->
+                    val ry = -18f - i * 16f - rc
+                    drawRect(tower.type.color.copy(0.45f), Offset(-16f, ry), Size(32f, 7f))
+                    drawRect(Color.White.copy(0.07f), Offset(-16f, ry), Size(32f, 3f))
+                }
+                drawRect(Color(0xFF1E1000), Offset(-19f, -18f - rc), Size(38f, 24f))
+                drawRect(tower.type.color.copy(0.55f), Offset(-19f, -18f - rc), Size(38f, 24f), style = Stroke(2f))
+                if (tower.animState > 0.35f) {
+                    glow(tower.type.color, 18f * tower.animState, Offset(0f, -94f - rc), 1.4f)
+                    drawCircle(Color.White.copy(tower.animState * 0.9f), 8f * tower.animState, Offset(0f, -96f - rc))
+                }
+            }
+
+            // FREEZE — cryo spire with snowflake arms
+            if (tower.type == TowerType.FREEZE) {
+                drawRect(Color(0xFF030D18), Offset(-7f, -86f - rc), Size(14f, 88f))
+                drawRect(tower.type.color.copy(0.62f), Offset(-7f, -86f - rc), Size(14f, 88f), style = Stroke(1.5f))
+                drawRect(Color.White.copy(0.12f), Offset(-7f, -86f - rc), Size(14f, 20f))
+                listOf(-72f, -46f, -20f).forEachIndexed { idx, h ->
+                    val aw = (22f - idx * 3f) - rc * 0.4f
+                    drawLine(tower.type.color.copy(0.7f), Offset(-aw, h - rc), Offset(aw, h - rc), 2.5f)
+                    drawLine(tower.type.color.copy(0.5f), Offset(-aw*0.7f, h - rc - aw*0.7f), Offset(aw*0.7f, h - rc + aw*0.7f), 1.5f)
+                    drawCircle(Color.White.copy(0.7f), 3f, Offset(-aw, h - rc))
+                    drawCircle(Color.White.copy(0.7f), 3f, Offset( aw, h - rc))
+                }
+                drawPath(ngon(0f, -88f - rc, 9f, 6), tower.type.color.copy(0.9f))
+                drawPath(ngon(0f, -88f - rc, 9f, 6), Color.White.copy(0.4f), style = Stroke(1.5f))
+                glow(tower.type.color, 6f + tower.animState * 4f, Offset(0f, -88f - rc), 1.2f + tower.animState * 0.8f)
+                drawCircle(Color.White.copy(0.85f + tower.animState * 0.15f), 4f + tower.animState * 3f, Offset(0f, -88f - rc))
+            }
+        }
+    }
+}
+
+fun DrawScope.drawProjectile(p: Projectile) {
+    val c = Offset(p.x, p.y)
+    p.trail.forEachIndexed { i, o ->
+        val a = (1f - i.toFloat() / p.trail.size)
+        val tr = when (p.source) { TowerType.NOVA -> 12f; TowerType.CANNON -> 9f; else -> 7f }
+        drawCircle(p.color.copy(a * 0.48f), (tr - i * 0.9f).coerceAtLeast(1f), o)
+    }
+    when (p.source) {
+        TowerType.TESLA -> {
+            glow(p.color, 8f, c, 1.2f)
+            drawCircle(p.color, 6f, c)
+            drawCircle(Color.White.copy(0.9f), 2.5f, c)
+        }
+        TowerType.NOVA -> {
+            glow(p.color, 14f, c, 1.4f)
+            drawCircle(p.color.copy(0.82f), 11f, c)
+            drawCircle(p.color.copy(0.4f),  22f, c, style = Stroke(3f))
+            drawCircle(Color.White.copy(0.9f), 4f, c)
+        }
+        TowerType.CANNON -> {
+            drawCircle(Color(0xFF0F0800), 11f, c)
+            glow(p.color, 9f, c, 0.8f)
+            drawCircle(p.color, 8f, c)
+            drawCircle(Color.White.copy(0.55f), 2.5f, c)
+        }
+        TowerType.FREEZE -> {
+            glow(p.color, 10f, c, 1.0f)
+            drawPath(ngon(p.x, p.y, 12f, 6), p.color.copy(0.85f))
+            drawPath(ngon(p.x, p.y, 12f, 6), Color.White.copy(0.4f), style = Stroke(2f))
+            drawCircle(Color.White.copy(0.95f), 3.5f, c)
+        }
+    }
+}
+
+fun DrawScope.drawParticle(p: Particle) {
+    val a = p.life.coerceIn(0f, 1f)
+    when (p.type) {
+        ParticleType.SMOKE -> drawCircle(p.color.copy(a * 0.16f), p.size * (1.9f - a * 0.5f), Offset(p.x, p.y))
+        ParticleType.RING  -> {
+            drawCircle(p.color.copy(a * 0.7f),  p.size, Offset(p.x, p.y), style = Stroke(2f))
+            drawCircle(p.color.copy(a * 0.14f), p.size * 1.2f, Offset(p.x, p.y))
+        }
+        ParticleType.SPARK -> {
+            val spd = sqrt(p.vx * p.vx + p.vy * p.vy).coerceAtLeast(0.01f)
+            val len = p.size * a * 2.2f
+            drawLine(p.color.copy(a * 0.82f),
+                Offset(p.x - p.vx/spd * len * 0.38f, p.y - p.vy/spd * len * 0.38f),
+                Offset(p.x + p.vx/spd * len * 0.62f, p.y + p.vy/spd * len * 0.62f),
+                (p.size * a * 0.5f).coerceAtLeast(1f), cap = StrokeCap.Round)
+            drawCircle(Color.White.copy(a * 0.65f), p.size * 0.26f * a, Offset(p.x, p.y))
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════
+//  COMPOSABLES
+// ═══════════════════════════════════════════════
+
+
+@Composable
+fun GameScreen() {
 
             // ── SPECTER: fast diamond with motion streak ──
             EnemyType.SPECTER -> {
