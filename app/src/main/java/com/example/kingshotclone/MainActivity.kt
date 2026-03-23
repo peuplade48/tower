@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
@@ -452,10 +453,10 @@ fun DrawScope.drawEnemy(e: Enemy, t: Float) {
 
         // HP bar
         val bw = 84f * s; val bh = 7f; val barY = -110f * s
-        drawRoundRect(Color.Black.copy(0.75f), Offset(-bw / 2f, barY), Size(bw, bh), 4f, 4f)
+        drawRoundRect(Color.Black.copy(0.75f), Offset(-bw / 2f, barY), Size(bw, bh), CornerRadius(4f))
         if (hpR > 0f) drawRoundRect(
             Brush.horizontalGradient(listOf(Color(0xFFFF1744), Color(0xFFFFAB00), Color(0xFF69F0AE))),
-            Offset(-bw / 2f, barY), Size(bw * hpR, bh), 4f, 4f
+            Offset(-bw / 2f, barY), Size(bw * hpR, bh), CornerRadius(4f)
         )
     }
 }
