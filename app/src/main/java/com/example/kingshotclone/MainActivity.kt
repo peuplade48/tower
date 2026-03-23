@@ -20,6 +20,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.*
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -465,12 +466,20 @@ fun DrawScope.drawBackground(path: List<PNode>, t: Float) {
 
     if (path.size < 2) return
 
+    // Road 3D Depth
+    for (i in 0 until path.size - 1) {
+        val a = Offset(path[i].x, path[i].y); val b = Offset(path[i + 1].x, path[i + 1].y)
+        for (d in 16 downTo 2 step 4) {
+            drawLine(Color(0xFF04040A), Offset(a.x, a.y + d), Offset(b.x, b.y + d), 104f, cap = StrokeCap.Round)
+        }
+    }
+
     // Road — multi-layer
     for (i in 0 until path.size - 1) {
         val a = Offset(path[i].x, path[i].y); val b = Offset(path[i + 1].x, path[i + 1].y)
         drawLine(Color(0x14FF9800), a, b, 200f, cap = StrokeCap.Round)   // wide halo
-        drawLine(Color(0xFF0C0C1E), a, b, 104f, cap = StrokeCap.Square)  // dark asphalt
-        drawLine(Color(0xFF0F0F22), a, b, 88f,  cap = StrokeCap.Square)  // lighter inner
+        drawLine(Color(0xFF0C0C1E), a, b, 104f, cap = StrokeCap.Round)   // dark asphalt
+        drawLine(Color(0xFF0F0F22), a, b, 88f,  cap = StrokeCap.Round)   // lighter inner
         drawLine(Color(0x22FF9800), a, b, 115f, cap = StrokeCap.Round)   // glow halo
         drawLine(Color(0xDDFF9800), a, b, 2.5f, cap = StrokeCap.Round)   // bright edge
         drawLine(Color(0x66FFD740), a, b, 1.5f, cap = StrokeCap.Round,
@@ -500,7 +509,7 @@ fun DrawScope.drawEnemy(e: Enemy, t: Float) {
     if (e.type == EnemyType.VOID_WALKER) {
         val wave = t * 2.8f
         val body = ghostOutline(cx, cy, s, wave)
-        drawPath(ghostOutline(cx + 2f, cy + 4f, s, wave), Color.Black.copy(0.45f))  // shadow
+        drawPath(ghostOutline(cx, cy + 24f, s, wave), Color.Black.copy(0.5f))  // 3D floating shadow
         glow(ec, 42f * s, Offset(cx, cy), 0.85f)
         drawPath(body, e.type.color.copy(0.92f))
         drawPath(ghostOutline(cx + 2f*s, cy + 6f*s, s * 0.78f, wave), Color(0xFF020210).copy(0.5f)) // dark inner
@@ -530,7 +539,7 @@ fun DrawScope.drawEnemy(e: Enemy, t: Float) {
             val a = (0.22f - i * 0.033f).coerceAtLeast(0f)
             drawOval(e.type.color.copy(a), Offset(cx - 16f*s, cy - 50f*s - i*20f*s), Size(32f*s, 18f*s))
         }
-        drawPath(dartShape(cx + 2f, cy + 4f, s), Color.Black.copy(0.4f))
+        drawPath(dartShape(cx, cy + 20f, s), Color.Black.copy(0.4f)) // floating shadow
         glow(ec, 36f * s, Offset(cx, cy), 0.95f)
         drawPath(dart, e.type.color)
         drawPath(dartShape(cx, cy + 6f*s, s * 0.74f), Color.Black.copy(0.32f))            // underside
@@ -549,6 +558,10 @@ fun DrawScope.drawEnemy(e: Enemy, t: Float) {
     // ── IRON GOLEM: armored hexagon with slow rotating defense ring ──
     if (e.type == EnemyType.IRON_GOLEM) {
         withTransform({ translate(cx, cy); rotate(t * 14f, Offset.Zero) }) {
+            drawPath(ngon(0f, 20f*s, 90f*s, 6), Color.Black.copy(0.6f)) // shadow
+            for (i in 12 downTo 2 step 3) {
+                drawPath(ngon(0f, i.toFloat()*s, 90f*s, 6), Color(0xFF060D14)) // 3D depth
+            }
             drawPath(ngon(0f, 0f, 90f*s, 6), Color(0xFF0B1720))
             drawPath(ngon(0f, 0f, 90f*s, 6), e.type.color.copy(0.44f), style = Stroke(10f))
             repeat(6) { i ->
@@ -561,7 +574,6 @@ fun DrawScope.drawEnemy(e: Enemy, t: Float) {
         }
         glow(e.type.color, 60f*s, Offset(cx, cy), 0.75f)
         withTransform({ translate(cx, cy) }) {
-            drawPath(ngon(3f*s, 5f*s, 61f*s, 6), Color.Black.copy(0.45f)) // shadow
             drawPath(ngon(0f, 0f, 62f*s, 6), Color(0xFF0D1820))
             drawPath(ngon(0f, 0f, 60f*s, 6), ec.copy(0.65f))
             drawPath(ngon(-4f*s, -6f*s, 54f*s, 6), Color.White.copy(0.055f)) // top highlight
@@ -604,7 +616,7 @@ fun DrawScope.drawEnemy(e: Enemy, t: Float) {
         }
         glow(e.type.color, 78f*s, Offset(cx, cy), 1.0f)
         withTransform({ translate(cx, cy) }) {
-            drawCircle(Color.Black.copy(0.6f), 80f*s, Offset(4f*s, 5f*s))
+            drawCircle(Color.Black.copy(0.6f), 80f*s, Offset(0f, 28f*s))
             drawCircle(Color(0xFF060500), 80f*s)
             drawCircle(e.type.color.copy(0.82f), 80f*s, style = Stroke(12f))
             drawCircle(e.type.color.copy(0.12f), 74f*s)
@@ -659,7 +671,10 @@ fun DrawScope.drawTower(tower: Tower, time: Float) {
         val lc = when (tower.level) { 2 -> Color(0xFFFFD740); 3 -> Color(0xFFFF6D00); else -> tower.type.color }
 
         // Hexagonal base platform — shadow then body
-        drawPath(ngon(3f, 4f, 56f, 6), Color.Black.copy(0.5f))
+        drawPath(ngon(0f, 22f, 56f, 6), Color.Black.copy(0.7f)) // deep shadow
+        for (i in 16 downTo 2 step 2) {
+            drawPath(ngon(0f, i.toFloat(), 56f, 6), Color(0xFF060612)) // 3D edge
+        }
         drawPath(ngon(0f, 0f, 56f, 6), Color(0xFF0C0C1E))
         drawPath(ngon(0f, 0f, 56f, 6), lc.copy(0.52f * pulse), style = Stroke(3.5f + tower.level * 1.5f))
         drawPath(ngon(-3f, -4f, 50f, 6), Color.White.copy(0.055f)) // top-left highlight
@@ -841,7 +856,15 @@ fun GameScreen() {
 
     Box(Modifier.fillMaxSize().background(Color(0xFF05050F))) {
         Canvas(
-            Modifier.fillMaxSize().pointerInput(upgradeMode, selType) {
+            Modifier.fillMaxSize()
+                .graphicsLayer {
+                    rotationX = 45f            // Tahtayı geriye doğru yatırıp perspektif verir
+                    cameraDistance = 12f * density 
+                    translationY = -80f        // Tahtayı hafif yukarı taşır 
+                    scaleX = 1.15f             // Yanlardaki boşlukları doldurmak için büyütür
+                    scaleY = 1.15f
+                }
+                .pointerInput(upgradeMode, selType) {
                 detectTapGestures { tap ->
                     if (engine.state == GameState.GAME_OVER) return@detectTapGestures
                     if (upgradeMode) engine.upgrade(tap.x, tap.y)
